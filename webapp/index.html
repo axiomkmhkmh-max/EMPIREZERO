@@ -1,1 +1,602 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#050506">
+<title>EMPIRE ZERO</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{
+  --bg:#050506; --bg2:#0a0a0d; --card:#0e0f13; --card2:#14151a; --line:#1e2027; --line2:#2a2d36;
+  --red:#e02a2a; --red2:#a81414; --amber:#f5a30f; --amber2:#c97c00; --txt:#f3f3f5; --dim:#8c909a;
+  --green:#2fd27a; --blue:#2f6bff; --teal:#19c3b0;
+  --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
+  --hdr:62px; --nav:64px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);font-family:Vazirmatn,system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif;overflow:hidden;overscroll-behavior:none}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+#app{position:fixed;inset:0;display:flex;flex-direction:column;background:radial-gradient(120% 60% at 50% -10%,#2a0707 0%,transparent 55%),var(--bg)}
+/* header */
+header{flex:none;height:calc(var(--hdr) + var(--sat));padding:var(--sat) 14px 0;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #15161b;background:rgba(5,5,6,.82);backdrop-filter:blur(10px);z-index:20}
+.who{display:flex;align-items:center;gap:10px;min-width:0}
+.avatar{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;font-size:22px;background:#17181d;border:2px solid #c7501f;box-shadow:0 0 14px rgba(224,42,42,.35);flex:none}
+.who small{display:block;color:var(--dim);font-size:11px}
+.who b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vw}
+.pill{display:flex;align-items:center;gap:6px;padding:6px 11px;border-radius:999px;font-size:11.5px;font-weight:600;color:var(--green);background:rgba(47,210,122,.08);border:1px solid rgba(47,210,122,.28)}
+.pill i{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(47,210,122,.7);animation:pulse 1.8s infinite}
+.pill.off{color:var(--amber);background:rgba(245,163,15,.08);border-color:rgba(245,163,15,.3)}
+.pill.off i{background:var(--amber);animation:none}
+@keyframes pulse{70%{box-shadow:0 0 0 7px rgba(47,210,122,0)}100%{box-shadow:0 0 0 0 rgba(47,210,122,0)}}
+/* tabs */
+main{flex:1;position:relative;min-height:0}
+.tab{position:absolute;inset:0;display:none}
+.tab.on{display:block}
+.scroll{overflow-y:auto;overflow-x:hidden;padding:14px 14px calc(var(--nav) + var(--sab) + 18px);-webkit-overflow-scrolling:touch}
+nav{flex:none;height:calc(var(--nav) + var(--sab));padding:6px 10px var(--sab);display:flex;gap:4px;background:rgba(8,8,10,.92);backdrop-filter:blur(12px);border-top:1px solid #17181d;z-index:20}
+nav button{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border-radius:14px;color:var(--dim);font-size:11px;font-weight:600;transition:.2s}
+nav button svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+nav button.on{color:#fff;background:linear-gradient(180deg,rgba(224,42,42,.22),rgba(224,42,42,.06));box-shadow:inset 0 0 0 1px rgba(224,42,42,.35)}
+/* map */
+#cv{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block;background:#06121f}
+.ticker{position:absolute;top:10px;left:10px;right:10px;height:38px;border-radius:12px;background:rgba(8,8,10,.72);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:8px;padding:0 12px;overflow:hidden;font-size:12.5px;z-index:5}
+.ticker .dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 10px var(--red)}
+.ticker span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.ticker span.in{animation:slide .5s ease}
+@keyframes slide{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.ctl{position:absolute;left:10px;top:60px;display:flex;flex-direction:column;gap:8px;z-index:5}
+.ctl button{width:42px;height:42px;border-radius:12px;background:rgba(8,8,10,.74);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.1);display:grid;place-items:center;font-size:20px;font-weight:800}
+.ctl button:active{transform:scale(.94)}
+.chips{position:absolute;right:10px;left:10px;bottom:calc(10px);display:flex;gap:8px;overflow-x:auto;z-index:5;scrollbar-width:none;padding-bottom:2px}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;display:flex;align-items:center;gap:7px;padding:9px 13px;border-radius:13px;background:rgba(8,8,10,.78);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.1);font-size:12.5px;font-weight:600}
+.chip.gold{border-color:rgba(255,205,60,.5);box-shadow:0 0 16px rgba(255,205,60,.15)}
+.chip.red{border-color:rgba(224,42,42,.5)}
+.stat{position:absolute;right:10px;top:60px;z-index:5;padding:8px 11px;border-radius:12px;background:rgba(8,8,10,.74);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.1);font-size:11.5px;line-height:1.7;color:#cfd3dc}
+.loading{position:absolute;inset:0;display:grid;place-items:center;color:var(--dim);font-size:13px;z-index:4;background:#06121f}
+.loading b{display:block;width:34px;height:34px;margin:0 auto 12px;border-radius:50%;border:3px solid #1b2c3d;border-top-color:var(--red);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* shop */
+.sec{display:flex;align-items:center;justify-content:space-between;margin:20px 2px 11px}
+.sec h3{margin:0;font-size:15px;font-weight:800;display:flex;align-items:center;gap:8px}
+.sec small{color:var(--dim);font-size:11px}
+.sec .dotA{width:8px;height:8px;border-radius:50%;background:var(--amber);box-shadow:0 0 10px var(--amber)}
+.wallet{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+.wal{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:9px 4px;text-align:center;min-width:0}
+.wal small{display:block;color:var(--dim);font-size:10.5px;margin-bottom:3px}
+.wal b{font-size:13.5px;display:block;white-space:nowrap}
+.wal em{display:block;font-style:normal;font-size:9.5px;color:var(--dim);margin-top:2px}
+.wal.z b{color:var(--amber)}
+.shieldbar{margin-top:8px;display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:14px;background:var(--card);border:1px solid var(--line);font-size:12px}
+.shieldbar svg{width:22px;height:22px;flex:none}
+.shieldbar .t{flex:1;color:var(--dim)}
+.shieldbar b{color:#7fb0ff}
+.banner{position:relative;height:186px;border-radius:20px;overflow:hidden;border:1px solid #2a1214;background:linear-gradient(100deg,#0b0405 0%,#2a0608 100%)}
+.slide{position:absolute;inset:0;padding:16px 20px 46px;display:flex;align-items:center;justify-content:space-between;opacity:0;pointer-events:none;transition:opacity .5s}
+.slide.on{opacity:1;pointer-events:auto}
+.slide .tx{max-width:62%}
+.slide .bd{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:8px;font-size:10.5px;font-weight:600;color:var(--amber);background:rgba(245,163,15,.1);border:1px solid rgba(245,163,15,.4)}
+.slide h2{margin:9px 0 11px;font-size:19px;line-height:1.5;font-weight:800}
+.slide h2 em{font-style:normal;color:#ff4747}
+.btnR{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border-radius:12px;font-weight:700;font-size:12.5px;background:linear-gradient(180deg,#ef3b3b,#b81a1a);box-shadow:0 6px 18px rgba(224,42,42,.35);color:#fff}
+.btnR:active{transform:scale(.97)}
+.slide .art{width:96px;height:96px;filter:drop-shadow(0 0 22px rgba(224,42,42,.55));flex:none}
+.bnav{position:absolute;bottom:6px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.14);display:grid;place-items:center;z-index:3;font-size:15px}
+.bnav.l{left:12px}.bnav.r{right:12px}
+.dots{position:absolute;bottom:17px;left:0;right:0;display:flex;justify-content:center;gap:5px}
+.dots i{width:6px;height:6px;border-radius:3px;background:#444;transition:.3s}
+.dots i.on{width:22px;background:var(--red)}
+.cats{display:flex;gap:9px;overflow-x:auto;padding:2px 2px 6px;scrollbar-width:none}
+.cats::-webkit-scrollbar{display:none}
+.cat{flex:none;width:76px;height:84px;border-radius:16px;background:var(--card);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;font-size:11.5px;font-weight:600;color:#c3c6ce;transition:.2s}
+.cat svg{width:30px;height:30px}
+.cat.on{background:linear-gradient(180deg,#ef3b3b,#a81414);color:#fff;border-color:#ff5a5a;box-shadow:0 8px 24px rgba(224,42,42,.4)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.rec{display:flex;align-items:center;gap:9px;padding:10px;border-radius:14px;background:var(--card);border:1px solid var(--line);min-width:0}
+.rec .ic{width:38px;height:38px;border-radius:11px;background:#0d1426;display:grid;place-items:center;flex:none}
+.rec .ic svg{width:26px;height:26px}
+.rec .i{flex:1;min-width:0}
+.rec b{display:block;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rec small{display:block;color:var(--dim);font-size:10.5px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rec .rb{width:30px;height:30px;border-radius:50%;background:rgba(224,42,42,.12);border:1px solid rgba(224,42,42,.45);display:grid;place-items:center;flex:none}
+.rec .rb svg{width:15px;height:15px;stroke:#ff5555;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.offer{position:relative;display:flex;align-items:center;gap:12px;padding:13px;border-radius:16px;border:1px solid rgba(245,163,15,.38);background:linear-gradient(120deg,rgba(245,163,15,.1),rgba(20,14,4,.9));margin-bottom:9px}
+.offer .ic{width:52px;height:52px;border-radius:14px;background:rgba(255,255,255,.04);display:grid;place-items:center;flex:none}
+.offer .ic svg{width:36px;height:36px}
+.offer .i{flex:1;min-width:0}
+.tagA{display:inline-block;padding:2px 8px;border-radius:7px;background:var(--amber);color:#1a1000;font-size:10.5px;font-weight:800;margin-bottom:4px}
+.offer b{display:block;font-size:14px}
+.offer .pr{font-size:12px;margin-top:3px;color:#ffd27a}
+.offer .pr s{color:var(--dim);margin-left:6px}
+.offer .cd{font-size:10.5px;color:var(--amber);margin-top:4px}
+.btnA{padding:10px 20px;border-radius:12px;font-weight:800;font-size:13px;background:linear-gradient(180deg,#ffb52a,#e28c00);color:#1a1000;box-shadow:0 6px 16px rgba(245,163,15,.25)}
+.btnA:active{transform:scale(.96)}
+.items{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.item{display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:16px;background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line)}
+.item .ic{height:70px;border-radius:12px;display:grid;place-items:center;background:radial-gradient(circle at 50% 60%,rgba(255,255,255,.07),transparent 70%),#0a0b0f}
+.item .ic svg{width:48px;height:48px}
+.item b{font-size:13.5px}
+.item small{color:var(--dim);font-size:10.5px;line-height:1.5;min-height:31px}
+.price{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.price span{font-weight:800;font-size:13px}
+.price span.z{color:var(--amber)}
+.btnS{padding:7px 14px;border-radius:10px;font-weight:700;font-size:12px;background:linear-gradient(180deg,#ef3b3b,#b81a1a);color:#fff}
+.btnS.dis{background:#1b1c22;color:var(--dim)}
+.empty{padding:26px 14px;text-align:center;color:var(--dim);font-size:12.5px;border:1px dashed var(--line2);border-radius:16px}
+/* rank */
+.seg{display:flex;padding:4px;border-radius:13px;background:var(--card);border:1px solid var(--line);margin-bottom:12px}
+.seg button{flex:1;padding:8px;border-radius:10px;font-size:12.5px;font-weight:700;color:var(--dim)}
+.seg button.on{background:linear-gradient(180deg,#ef3b3b,#a81414);color:#fff}
+.row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:14px;background:var(--card);border:1px solid var(--line);margin-bottom:7px}
+.row.me{border-color:rgba(224,42,42,.7);background:linear-gradient(90deg,rgba(224,42,42,.12),var(--card))}
+.row.up{animation:rowup 1.6s}
+.row.dn{animation:rowdn 1.6s}
+@keyframes rowup{0%{background:rgba(47,210,122,.3)}100%{background:var(--card)}}
+@keyframes rowdn{0%{background:rgba(224,42,42,.3)}100%{background:var(--card)}}
+.rk{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;font-weight:800;font-size:13px;background:#17181d;flex:none}
+.rk.g1{background:linear-gradient(180deg,#ffd75e,#c98f00);color:#2a1c00}
+.rk.g2{background:linear-gradient(180deg,#e3e6ee,#9aa0ae);color:#1b1d24}
+.rk.g3{background:linear-gradient(180deg,#e3a06b,#a15b24);color:#2a1300}
+.cdot{width:10px;height:10px;border-radius:50%;flex:none}
+.row .nm{flex:1;min-width:0}
+.row .nm b{display:block;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .nm small{color:var(--dim);font-size:10.5px}
+.row .v{text-align:left;font-weight:800;font-size:13.5px}
+.row .v small{display:block;color:var(--dim);font-weight:400;font-size:10px}
+.mv{font-size:10px;font-weight:700;margin-right:4px}
+.mv.u{color:var(--green)}.mv.d{color:#ff6b6b}
+/* me */
+.hero{display:flex;align-items:center;gap:14px;padding:16px;border-radius:20px;background:linear-gradient(120deg,#220707,#0d0d11);border:1px solid #3a1416}
+.hero .big{width:64px;height:64px;border-radius:50%;display:grid;place-items:center;font-size:34px;background:#17181d;border:2px solid #c7501f;box-shadow:0 0 22px rgba(224,42,42,.4)}
+.hero h2{margin:0 0 4px;font-size:18px}
+.hero small{color:var(--dim)}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:10px}
+.sc{padding:13px;border-radius:15px;background:var(--card);border:1px solid var(--line)}
+.sc small{display:block;color:var(--dim);font-size:11px;margin-bottom:4px}
+.sc b{font-size:18px}
+.bar{height:6px;border-radius:3px;background:#1b1c22;margin-top:8px;overflow:hidden}
+.bar i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#ef3b3b,#ff8a3d)}
+.bar i.b{background:linear-gradient(90deg,#2f6bff,#6fa0ff)}
+.crownCard{margin-top:10px;padding:13px;border-radius:15px;background:linear-gradient(120deg,rgba(255,205,60,.12),var(--card));border:1px solid rgba(255,205,60,.4);font-size:12.5px;line-height:1.8}
+/* sheet + toast */
+#shade{position:fixed;inset:0;background:rgba(0,0,0,.55);opacity:0;pointer-events:none;transition:.25s;z-index:40}
+#shade.on{opacity:1;pointer-events:auto}
+#sheet{position:fixed;left:0;right:0;bottom:0;max-height:78vh;overflow-y:auto;padding:10px 16px calc(18px + var(--sab));border-radius:24px 24px 0 0;background:#0d0e12;border-top:1px solid var(--line2);transform:translateY(105%);transition:transform .3s cubic-bezier(.2,.8,.2,1);z-index:41}
+#sheet.on{transform:none}
+#sheet .grab{width:42px;height:4px;border-radius:2px;background:#33353e;margin:0 auto 14px}
+#sheet h3{margin:0 0 4px;font-size:17px;display:flex;align-items:center;gap:8px}
+#sheet p{color:var(--dim);font-size:12.5px;line-height:1.8;margin:6px 0}
+.kv{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:12px 0}
+.kv div{padding:10px 6px;border-radius:12px;background:var(--card);border:1px solid var(--line);text-align:center}
+.kv small{display:block;color:var(--dim);font-size:10.5px;margin-bottom:3px}
+.kv b{font-size:14px}
+.acts{display:flex;gap:9px;margin-top:14px}
+.acts button{flex:1;padding:13px;border-radius:13px;font-weight:800;font-size:13.5px}
+.acts .ok{background:linear-gradient(180deg,#ef3b3b,#b81a1a);color:#fff}
+.acts .no{background:var(--card2);border:1px solid var(--line2);color:#c3c6ce}
+.news li{list-style:none;padding:9px 0;border-bottom:1px solid #16171c;font-size:12.5px;line-height:1.7}
+.news li small{color:var(--dim);display:block;font-size:10.5px}
+.news{padding:0;margin:8px 0 0}
+#toast{position:fixed;left:50%;top:calc(var(--sat) + 70px);transform:translate(-50%,-20px);opacity:0;padding:11px 16px;border-radius:13px;background:#14151a;border:1px solid var(--line2);font-size:13px;font-weight:600;z-index:60;max-width:88vw;text-align:center;transition:.3s;pointer-events:none}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+#toast.good{border-color:rgba(47,210,122,.6);box-shadow:0 0 24px rgba(47,210,122,.18)}
+#toast.bad{border-color:rgba(224,42,42,.6)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="gShield" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6fa0ff"/><stop offset="1" stop-color="#1a3fa8"/></linearGradient>
+    <linearGradient id="gBolt" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe27a"/><stop offset="1" stop-color="#f08a00"/></linearGradient>
+    <linearGradient id="gIngT" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5eead4"/><stop offset="1" stop-color="#0f8f86"/></linearGradient>
+    <linearGradient id="gIngF" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#19c3b0"/><stop offset="1" stop-color="#075f5a"/></linearGradient>
+    <linearGradient id="gWheat" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe08a"/><stop offset="1" stop-color="#d9962b"/></linearGradient>
+    <linearGradient id="gCrown" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe27a"/><stop offset="1" stop-color="#d99100"/></linearGradient>
+  </defs>
+</svg>
+<div id="app">
+  <header>
+    <div class="who"><div class="avatar" id="hAv">🏛</div><div><small>خوش آمدی، فرمانده</small><b id="hName">…</b></div></div>
+    <div class="pill off" id="live"><i></i><span id="liveTx">در حال اتصال</span></div>
+  </header>
+  <main>
+    <section class="tab on" id="t-map">
+      <canvas id="cv"></canvas>
+      <div class="loading" id="mapLoad"><div><b></b>نقشه‌ی جهان در حال ساخته شدنه…</div></div>
+      <div class="ticker" id="ticker"><div class="dot"></div><span id="tickTx">منتظر خبر تازه از جبهه‌ها…</span></div>
+      <div class="stat" id="mapStat"></div>
+      <div class="ctl">
+        <button id="zIn" aria-label="بزرگ‌نمایی">+</button>
+        <button id="zOut" aria-label="کوچک‌نمایی">−</button>
+        <button id="zMe" aria-label="کشور من">◎</button>
+      </div>
+      <div class="chips" id="chips"></div>
+    </section>
+    <section class="tab scroll" id="t-shop"></section>
+    <section class="tab scroll" id="t-rank"></section>
+    <section class="tab scroll" id="t-me"></section>
+  </main>
+  <nav id="nav">
+    <button data-t="map" class="on"><svg viewBox="0 0 24 24"><path d="M3 6.5l6-2.5 6 2.5 6-2.5v13.5l-6 2.5-6-2.5-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/></svg>نقشه</button>
+    <button data-t="shop"><svg viewBox="0 0 24 24"><path d="M4 8h16l-1.3 11.2a1.5 1.5 0 0 1-1.5 1.3H6.8a1.5 1.5 0 0 1-1.5-1.3z"/><path d="M8.5 8V6.5a3.5 3.5 0 0 1 7 0V8"/></svg>فروشگاه</button>
+    <button data-t="rank"><svg viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v1a3 3 0 0 0 3 3M17 6h3v1a3 3 0 0 1-3 3M12 14v4M8.5 20h7"/></svg>رتبه‌ها</button>
+    <button data-t="me"><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.7"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>کشور من</button>
+  </nav>
+</div>
+<div id="shade"></div><div id="sheet"></div><div id="toast"></div>
 
+<script>
+"use strict";
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const tg=window.Telegram&&Telegram.WebApp;
+if(tg){try{tg.ready();tg.expand();tg.setHeaderColor('#050506');tg.setBackgroundColor('#050506');tg.disableVerticalSwipes&&tg.disableVerticalSwipes()}catch(e){}}
+const qs=new URLSearchParams(location.search);
+const INIT=(tg&&tg.initData)||(qs.get('dev')?'dev:'+qs.get('dev'):'');
+const fa=n=>Number(n||0).toLocaleString('fa-IR');
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const hap=(t='light')=>{try{tg&&tg.HapticFeedback&&(t==='ok'||t==='bad'?tg.HapticFeedback.notificationOccurred(t==='ok'?'success':'error'):tg.HapticFeedback.impactOccurred(t))}catch(e){}};
+function dur(s){s=Math.max(0,Math.floor(s));const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
+  if(d)return `${fa(d)} روز و ${fa(h)} ساعت`;if(h)return `${fa(h)} ساعت و ${fa(m)} دقیقه`;return `${fa(Math.max(1,m))} دقیقه`}
+function ago(t){const s=Date.now()/1000-t;return s<60?'همین الان':dur(s)+' پیش'}
+async function api(path,opt={}){
+  const r=await fetch(path,{...opt,headers:{'X-Init':INIT,'Content-Type':'application/json',...(opt.headers||{})}});
+  if(r.status===401)throw new Error('auth');
+  return r.json();
+}
+let toastT;function toast(m,k=''){const t=$('#toast');t.textContent=m;t.className='on '+k;clearTimeout(toastT);toastT=setTimeout(()=>t.className='',2800)}
+
+/* ---------- آیکون‌ها ---------- */
+const ART={
+ shield:`<svg viewBox="0 0 64 64"><path d="M32 4l24 10v18c0 14-10 24-24 28C18 56 8 46 8 32V14z" fill="url(#gShield)"/><path d="M32 10l18 7.5V32c0 10.5-7.5 18.5-18 22z" fill="#fff" opacity=".12"/><path d="M32 22l3.2 6.6 7.2 1-5.2 5 1.2 7.2L32 38.4 25.6 42l1.2-7.2-5.2-5 7.2-1z" fill="#fff" opacity=".92"/></svg>`,
+ zero:`<svg viewBox="0 0 64 64"><path d="M37 3L13 37h15l-4 24 27-37H35z" fill="url(#gBolt)"/><path d="M37 3L13 37h8z" fill="#fff" opacity=".28"/></svg>`,
+ steel:`<svg viewBox="0 0 64 64"><path d="M6 36l10-16h40l-8 16z" fill="url(#gIngT)"/><path d="M6 36h42v14H6z" fill="url(#gIngF)"/><path d="M48 36l8-16v14l-8 16z" fill="#0b6f68"/><path d="M16 20h40" stroke="#fff" opacity=".4"/></svg>`,
+ food:`<svg viewBox="0 0 64 64"><path d="M32 60V22" stroke="#c98a22" stroke-width="3" stroke-linecap="round"/><g fill="url(#gWheat)"><ellipse cx="32" cy="10" rx="5" ry="9"/><ellipse cx="22" cy="20" rx="4.6" ry="8.5" transform="rotate(-32 22 20)"/><ellipse cx="42" cy="20" rx="4.6" ry="8.5" transform="rotate(32 42 20)"/><ellipse cx="22" cy="33" rx="4.6" ry="8.5" transform="rotate(-32 22 33)"/><ellipse cx="42" cy="33" rx="4.6" ry="8.5" transform="rotate(32 42 33)"/></g></svg>`,
+ all:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/></svg>`,
+ crown:`<svg viewBox="0 0 64 64"><path d="M6 46L2 18l16 14 14-24 14 24 16-14-4 28z" fill="url(#gCrown)"/><rect x="8" y="48" width="48" height="8" rx="3" fill="#c98200"/></svg>`
+};
+const REFRESH=`<svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></svg>`;
+const art=(cat)=>ART[cat]||ART.all;
+
+/* ---------- وضعیت ---------- */
+const S={geo:null,map:null,me:null,shop:null,news:[],online:0,ver:null,sel:-1,cat:'all',rankBy:'score',prevRank:{},moves:{},tab:'map',live:false};
+const find=n=>S.map&&S.map.cs.findIndex(c=>c.n===n);
+
+/* ---------- نقشه ---------- */
+const SQ3=Math.sqrt(3);
+const EV=[[1,0],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1]], OD=[[1,0],[1,1],[0,1],[-1,0],[0,-1],[1,-1]];
+const HX=[],HY=[];for(let j=0;j<6;j++){const a=(60*j-30)*Math.PI/180;HX.push(Math.cos(a));HY.push(Math.sin(a))}
+const TERR=['#2c3b33','#33403a','#3d3c36','#454650'];
+const M={cv:$('#cv'),ctx:null,w:0,h:0,dpr:1,k:10,ox:0,oy:0,kMin:2,cx:null,cy:null,li:null,P:null,flashes:[],dirty:true,tw:null,reduce:matchMedia('(prefers-reduced-motion:reduce)').matches,ptr:new Map(),ocean:null};
+M.ctx=M.cv.getContext('2d');
+const hex=(p,x,y,r=1)=>{p.moveTo(x+HX[0]*r,y+HY[0]*r);for(let j=1;j<6;j++)p.lineTo(x+HX[j]*r,y+HY[j]*r);p.closePath()};
+const worldW=()=>SQ3*(S.geo.W+.5), worldH=()=>1.5*S.geo.H+.5;
+function nb(q,r,j){const o=(r&1)?OD:EV,x=q+o[j][0],y=r+o[j][1];return(x<0||y<0||x>=S.geo.W||y>=S.geo.H)?-1:y*S.geo.W+x}
+
+function buildGeo(g){
+  S.geo=g;const n=g.cells.length;M.cx=new Float32Array(n);M.cy=new Float32Array(n);M.li=new Int32Array(g.W*g.H).fill(-1);
+  const land=new Path2D(),coast=new Path2D();
+  g.cells.forEach((c,i)=>{const q=c%g.W,r=(c/g.W)|0;M.cx[i]=SQ3*(q+.5*(r&1)+.5);M.cy[i]=1.5*r+1;M.li[c]=i;hex(land,M.cx[i],M.cy[i])});
+  g.cells.forEach((c,i)=>{const q=c%g.W,r=(c/g.W)|0;for(let j=0;j<6;j++){const m=nb(q,r,j);if(m<0||M.li[m]<0){coast.moveTo(M.cx[i]+HX[j],M.cy[i]+HY[j]);coast.lineTo(M.cx[i]+HX[(j+1)%6],M.cy[i]+HY[(j+1)%6])}}});
+  M.land=land;M.coast=coast;M.P=null;resize();fit();
+}
+function buildMap(){
+  const g=S.geo,m=S.map,own=m.own,n=g.cells.length;
+  const owners=m.cs.map(()=>new Path2D()),bands=[0,1,2,3].map(()=>new Path2D()),hill=new Path2D(),mount=new Path2D(),border=new Path2D();
+  for(let i=0;i<n;i++){
+    const o=own[i],b=+g.elev[i];
+    if(o>=0)hex(owners[o],M.cx[i],M.cy[i]);else hex(bands[b],M.cx[i],M.cy[i]);
+    if(b===2)hex(hill,M.cx[i],M.cy[i]);else if(b===3)hex(mount,M.cx[i],M.cy[i]);
+    const c=g.cells[i],q=c%g.W,r=(c/g.W)|0;
+    for(let j=0;j<6;j++){const mm=nb(q,r,j);if(mm<0)continue;const l=M.li[mm];if(l<0)continue;const o2=own[l];
+      if(o2!==o&&(o>=0&&(o2<0||o<o2))){border.moveTo(M.cx[i]+HX[j],M.cy[i]+HY[j]);border.lineTo(M.cx[i]+HX[(j+1)%6],M.cy[i]+HY[(j+1)%6])}}
+  }
+  M.P={owners,bands,hill,mount,border,sel:null,selK:-2,cr:null,crK:-2};M.dirty=true;
+}
+function selPath(k){
+  const g=S.geo,own=S.map.own,p=new Path2D();
+  for(let i=0;i<own.length;i++){if(own[i]!==k)continue;const c=g.cells[i],q=c%g.W,r=(c/g.W)|0;
+    for(let j=0;j<6;j++){const mm=nb(q,r,j);const l=mm<0?-1:M.li[mm];if(l<0||own[l]!==k){p.moveTo(M.cx[i]+HX[j],M.cy[i]+HY[j]);p.lineTo(M.cx[i]+HX[(j+1)%6],M.cy[i]+HY[(j+1)%6])}}}
+  return p;
+}
+function resize(){
+  const r=M.cv.getBoundingClientRect();M.dpr=Math.min(2.5,window.devicePixelRatio||1);
+  M.w=r.width;M.h=r.height;M.cv.width=Math.round(M.w*M.dpr);M.cv.height=Math.round(M.h*M.dpr);
+  const g=M.ctx.createLinearGradient(0,0,0,M.h);g.addColorStop(0,'#071a2c');g.addColorStop(1,'#0a2b47');M.ocean=g;
+  if(S.geo){const B=bounds();M.kMin=Math.min(M.w/(B.x1-B.x0),M.h/(B.y1-B.y0))*.8;if(M.k<M.kMin)M.k=M.kMin;clamp()}M.dirty=true;
+}
+function clamp(){
+  const ww=worldW()*M.k,hh=worldH()*M.k,pad=60;
+  M.ox=ww<M.w?(M.w-ww)/2:Math.min(pad,Math.max(M.w-ww-pad,M.ox));
+  M.oy=hh<M.h?(M.h-hh)/2:Math.min(pad,Math.max(M.h-hh-pad,M.oy));
+}
+function bounds(){let a=1e9,b=1e9,c=-1e9,d=-1e9;for(let i=0;i<M.cx.length;i++){a=Math.min(a,M.cx[i]);c=Math.max(c,M.cx[i]);b=Math.min(b,M.cy[i]);d=Math.max(d,M.cy[i])}return{x0:a-1,y0:b-1,x1:c+1,y1:d+1}}
+function fit(){const B=bounds();M.k=Math.min(M.w/(B.x1-B.x0),M.h/(B.y1-B.y0))*.93;M.ox=M.w/2-(B.x0+B.x1)/2*M.k;M.oy=M.h/2-(B.y0+B.y1)/2*M.k;clamp();M.dirty=true}
+function flyTo(wx,wy,k,ms=900){
+  const from={k:M.k,x:(M.w/2-M.ox)/M.k,y:(M.h/2-M.oy)/M.k},t0=performance.now();k=Math.max(M.kMin,Math.min(70,k));
+  if(M.reduce)ms=1;M.tw={t0,ms,from,to:{k,x:wx,y:wy}};
+}
+function stepTween(t){
+  const w=M.tw;if(!w)return;let p=Math.min(1,(t-w.t0)/w.ms);const e=p<.5?4*p*p*p:1-Math.pow(-2*p+2,3)/2;
+  const lk=Math.log(w.from.k)+(Math.log(w.to.k)-Math.log(w.from.k))*e;M.k=Math.exp(lk);
+  const x=w.from.x+(w.to.x-w.from.x)*e,y=w.from.y+(w.to.y-w.from.y)*e;M.ox=M.w/2-x*M.k;M.oy=M.h/2-y*M.k;clamp();M.dirty=true;if(p>=1)M.tw=null;
+}
+function zoomAt(f,px,py){M.tw=null;const nk=Math.max(M.kMin,Math.min(70,M.k*f));f=nk/M.k;M.ox=px-(px-M.ox)*f;M.oy=py-(py-M.oy)*f;M.k=nk;clamp();M.dirty=true}
+function capXY(k){const c=S.map.cs[k];if(!c||c.cap<0)return null;const i=M.li[c.cap];return i<0?null:[M.cx[i],M.cy[i]]}
+function hit(px,py){
+  const wx=(px-M.ox)/M.k,wy=(py-M.oy)/M.k,r0=Math.round((wy-1)/1.5);let best=-1,bd=1.01;
+  for(let r=r0-1;r<=r0+1;r++){if(r<0||r>=S.geo.H)continue;const q0=Math.round(wx/SQ3-.5-.5*(r&1));
+    for(let q=q0-1;q<=q0+1;q++){if(q<0||q>=S.geo.W)continue;const l=M.li[r*S.geo.W+q];if(l<0)continue;const d=Math.hypot(wx-M.cx[l],wy-M.cy[l]);if(d<bd){bd=d;best=l}}}
+  return best;
+}
+function drawCrown(c,x,y,u,t){
+  c.save();c.translate(x,y+Math.sin(t*2.2)*u*.06);c.scale(u,u);
+  c.beginPath();c.moveTo(-.62,.32);c.lineTo(-.62,-.38);c.lineTo(-.32,-.08);c.lineTo(0,-.62);c.lineTo(.32,-.08);c.lineTo(.62,-.38);c.lineTo(.62,.32);c.closePath();
+  c.fillStyle='#ffcd2d';c.fill();c.lineWidth=.09;c.strokeStyle='#5a3700';c.stroke();
+  c.fillStyle='#ff4657';for(const [a,b] of [[-.62,-.38],[0,-.62],[.62,-.38]]){c.beginPath();c.arc(a,b,.12,0,7);c.fill()}c.restore();
+}
+function draw(ts){
+  const c=M.ctx,t=ts/1000;c.setTransform(M.dpr,0,0,M.dpr,0,0);c.fillStyle=M.ocean;c.fillRect(0,0,M.w,M.h);
+  if(!S.geo||!M.P)return;
+  if(!M.reduce){c.strokeStyle='rgba(120,190,255,.05)';c.lineWidth=1;for(let i=0;i<9;i++){const y=((i*90+t*7)%(M.h+90))-45;c.beginPath();for(let x=0;x<=M.w;x+=24)c.lineTo(x,y+Math.sin(x/55+t*.9+i)*5);c.stroke()}}
+  const k=M.k;c.setTransform(k*M.dpr,0,0,k*M.dpr,M.ox*M.dpr,M.oy*M.dpr);c.lineJoin='round';
+  c.lineWidth=1.5;c.strokeStyle='rgba(60,160,230,.14)';c.stroke(M.coast);
+  c.save();c.translate(0,.32);c.fillStyle='rgba(0,0,0,.62)';c.fill(M.land);
+  if(M.P){S.map.cs.forEach((cc,i)=>{c.fillStyle=`rgb(${cc.c[0]*.5|0},${cc.c[1]*.5|0},${cc.c[2]*.5|0})`;c.fill(M.P.owners[i])})}c.restore();
+  const P=M.P,seam=.05;c.lineWidth=seam;
+  for(let b=0;b<4;b++){c.fillStyle=c.strokeStyle=TERR[b];c.fill(P.bands[b]);c.stroke(P.bands[b])}
+  S.map.cs.forEach((cc,i)=>{const col=`rgb(${cc.c[0]},${cc.c[1]},${cc.c[2]})`;c.fillStyle=c.strokeStyle=col;c.fill(P.owners[i]);c.stroke(P.owners[i])});
+  c.fillStyle='rgba(255,255,255,.07)';c.fill(P.hill);c.fillStyle='rgba(255,255,255,.14)';c.fill(P.mount);
+  c.lineWidth=.07;c.strokeStyle='rgba(0,0,0,.55)';c.stroke(P.border);
+  c.lineWidth=.12;c.strokeStyle='rgba(150,215,255,.45)';c.stroke(M.coast);
+  if(S.map.crown.i>=0){if(P.crK!==S.map.crown.i){P.cr=selPath(S.map.crown.i);P.crK=S.map.crown.i}c.lineWidth=.16;c.strokeStyle=`rgba(255,205,60,${.65+.3*Math.sin(t*2)})`;c.shadowColor='#ffcd3c';c.shadowBlur=10;c.stroke(P.cr);c.shadowBlur=0}
+  if(S.sel>=0){if(P.selK!==S.sel){P.sel=selPath(S.sel);P.selK=S.sel}c.lineWidth=.2;c.strokeStyle='#fff';c.shadowColor='#fff';c.shadowBlur=8;c.stroke(P.sel);c.shadowBlur=0}
+  // flash
+  const now=performance.now();M.flashes=M.flashes.filter(f=>now-f.t0<2600);
+  for(const f of M.flashes){const a=1-(now-f.t0)/2600,p=new Path2D();f.cells.forEach(i=>hex(p,M.cx[i],M.cy[i],1+(1-a)*.6));c.fillStyle=`rgba(255,255,255,${a*.75})`;c.fill(p)}
+  // پایتخت‌ها
+  const cs=S.map.cs,order=cs.map((x,i)=>i).sort((a,b)=>cs[b].s-cs[a].s),topN=k<5?Math.min(8,cs.length):cs.length;
+  const me=S.me&&S.me.reg?S.me.idx:-1,cr=S.map.crown.i;
+  order.slice(0,topN).forEach((i,rank)=>{
+    const xy=capXY(i);if(!xy)return;const sx=xy[0]*k+M.ox,sy=xy[1]*k+M.oy;if(sx<-60||sy<-60||sx>M.w+60||sy>M.h+60)return;
+    const cc=cs[i],col=`rgb(${cc.c[0]},${cc.c[1]},${cc.c[2]})`;
+    if(k<7){c.beginPath();c.arc(xy[0],xy[1],.9,0,7);c.fillStyle='#0b0c10';c.fill();c.lineWidth=.22;c.strokeStyle=col;c.stroke()}
+    else{c.beginPath();c.arc(xy[0],xy[1],1.05,0,7);c.fillStyle='#0b0c10';c.fill();c.lineWidth=.16;c.strokeStyle=col;c.stroke();c.font=`1.15px sans-serif`;c.textAlign='center';c.textBaseline='middle';c.fillStyle='#fff';c.fillText(cc.e,xy[0],xy[1]+.06)}
+    if(cc.sh&&k>=7){c.beginPath();c.arc(xy[0],xy[1],1.45,0,7);c.lineWidth=.1;c.strokeStyle='rgba(120,170,255,.8)';c.setLineDash([.28,.22]);c.stroke();c.setLineDash([])}
+    if(k>=9||(k>=5&&rank<10)||rank<4){const fs=Math.max(.55,Math.min(1.1,13/k));c.font=`700 ${fs}px Vazirmatn,system-ui,sans-serif`;c.textAlign='center';c.textBaseline='alphabetic';c.lineWidth=fs*.28;c.strokeStyle='rgba(0,0,0,.85)';c.strokeText(cc.n,xy[0],xy[1]+1.5+fs*.7);c.fillStyle='#fff';c.fillText(cc.n,xy[0],xy[1]+1.5+fs*.7)}
+    if(i===cr)drawCrown(c,xy[0],xy[1]-1.5-(k<7?.2:.1),Math.max(1.1,10/k),t);
+  });
+  if(me>=0){const xy=capXY(me);if(xy){const p=(t*1.1)%1;for(const o of [0,.5]){const q=(p+o)%1;c.beginPath();c.arc(xy[0],xy[1],1.3+q*2.4,0,7);c.lineWidth=.14;c.strokeStyle=`rgba(255,70,70,${(1-q)*.9})`;c.stroke()}
+    const fs=Math.max(.7,Math.min(1.25,14/k));c.font=`800 ${fs}px Vazirmatn,system-ui,sans-serif`;c.textAlign='center';const w=fs*2.1,y0=xy[1]-3.1*Math.max(.8,Math.min(1.4,12/k));
+    c.fillStyle='#e0282f';c.beginPath();c.roundRect(xy[0]-w/2,y0-fs*.78,w,fs*1.5,fs*.4);c.fill();c.lineWidth=fs*.12;c.strokeStyle='#fff';c.stroke();
+    c.beginPath();c.moveTo(xy[0]-fs*.3,y0+fs*.72);c.lineTo(xy[0]+fs*.3,y0+fs*.72);c.lineTo(xy[0],y0+fs*1.15);c.fill();c.fillStyle='#fff';c.textBaseline='middle';c.fillText('تو',xy[0],y0)}}
+}
+let lastDraw=0;
+function loop(ts){
+  requestAnimationFrame(loop);
+  if(S.tab!=='map'||!M.P)return;
+  stepTween(ts);
+  const need=M.dirty||M.flashes.length||!M.reduce;
+  if(!need||ts-lastDraw<(M.dirty?10:42))return;
+  lastDraw=ts;M.dirty=false;draw(ts);
+}
+// ورودی لمس
+const pts=M.ptr;let tapInfo=null,pinch=null;
+M.cv.addEventListener('pointerdown',e=>{M.cv.setPointerCapture(e.pointerId);pts.set(e.pointerId,{x:e.clientX,y:e.clientY});M.tw=null;
+  if(pts.size===1)tapInfo={x:e.clientX,y:e.clientY,t:performance.now(),moved:false};else{tapInfo=null;const [a,b]=[...pts.values()];pinch={d:Math.hypot(a.x-b.x,a.y-b.y),k:M.k}}});
+M.cv.addEventListener('pointermove',e=>{const p=pts.get(e.pointerId);if(!p)return;
+  if(pts.size===1){const dx=e.clientX-p.x,dy=e.clientY-p.y;if(tapInfo&&Math.hypot(e.clientX-tapInfo.x,e.clientY-tapInfo.y)>7)tapInfo.moved=true;M.ox+=dx;M.oy+=dy;clamp();M.dirty=true}
+  p.x=e.clientX;p.y=e.clientY;
+  if(pts.size===2&&pinch){const [a,b]=[...pts.values()],d=Math.hypot(a.x-b.x,a.y-b.y),r=M.cv.getBoundingClientRect();zoomAt(pinch.k*d/pinch.d/M.k,(a.x+b.x)/2-r.left,(a.y+b.y)/2-r.top)}});
+const up=e=>{pts.delete(e.pointerId);if(pts.size<2)pinch=null;
+  if(tapInfo&&!tapInfo.moved&&performance.now()-tapInfo.t<400&&e.type==='pointerup'){const r=M.cv.getBoundingClientRect();pick(e.clientX-r.left,e.clientY-r.top)}
+  if(pts.size===0)tapInfo=null};
+M.cv.addEventListener('pointerup',up);M.cv.addEventListener('pointercancel',up);
+M.cv.addEventListener('wheel',e=>{e.preventDefault();const r=M.cv.getBoundingClientRect();zoomAt(e.deltaY<0?1.2:1/1.2,e.clientX-r.left,e.clientY-r.top)},{passive:false});
+$('#zIn').onclick=()=>zoomAt(1.5,M.w/2,M.h/2);$('#zOut').onclick=()=>zoomAt(1/1.5,M.w/2,M.h/2);
+$('#zMe').onclick=()=>goMe();
+function goMe(){const me=S.me&&S.me.reg?S.me.idx:-1;if(me<0){toast('اول توی ربات «ثبت نام» کن','bad');return}const xy=capXY(me);if(xy){flyTo(xy[0],xy[1],M.w/(SQ3*13));hap()}}
+function focusCountry(k){const xy=capXY(k);if(xy)flyTo(xy[0],xy[1],M.w/(SQ3*15))}
+
+function pick(px,py){
+  const l=hit(px,py);if(l<0){S.sel=-1;closeSheet();M.dirty=true;return}
+  const o=S.map.own[l];hap();
+  if(o>=0){S.sel=o;M.dirty=true;countrySheet(o)}
+  else{S.sel=-1;M.dirty=true;const b=+S.geo.elev[l];openSheet(`<h3>🌱 زمین آزاد</h3><p>${['دشت‌های هموار','تپه‌ماهورهای جنگلی','کوهستان','قله‌های سنگی'][b]}؛ هنوز صاحب نداره. هر کشور با «تسخیر» و پیروزی قاطع می‌تونه یه استان بگیره و خاکش رو بزرگ‌تر کنه.</p>`)}
+}
+function countrySheet(k){
+  const c=S.map.cs[k],cs=S.map.cs,pow=[...cs].sort((a,b)=>b.s-a.s).indexOf(c)+1,total=cs.reduce((a,x)=>a+x.l,0),mine=S.me&&S.me.idx===k;
+  const tags=[mine?'<span style="color:#ff6b6b">📍 کشور تو</span>':'',S.map.crown.i===k?'<span style="color:#ffcd2d">👑 امپراتور جهان</span>':'',c.sh?'<span style="color:#7fb0ff">🛡 سپر فعال</span>':'',c.npc?'<span style="color:var(--dim)">🤖 کشور ناظر (NPC)</span>':''].filter(Boolean).join(' · ');
+  openSheet(`<h3><span style="font-size:26px">${esc(c.e)}</span>${esc(c.n)}</h3><p>${tags||'کشور بازیکن'}</p>
+   <div class="kv"><div><small>استان</small><b>${fa(c.l)}</b></div><div><small>قدرت</small><b>${fa(c.s)}</b></div><div><small>رتبه</small><b>${fa(pow)}</b></div></div>
+   <div class="bar"><i style="width:${Math.min(100,c.l/total*100*3)}%"></i></div><p>${fa(Math.round(c.l/total*100))}٪ از خاک اشغال‌شده‌ی جهان</p>
+   ${mine||c.npc&&false?'':`<p>برای حمله توی ربات بنویس: <b>حمله ${esc(c.n)}</b> یا برای گرفتن استان <b>تسخیر ${esc(c.n)}</b>${c.sh?'. سپر داره؛ تا نشکنه نمی‌تونی بهش حمله کنی.':''}</p>`}
+   <div class="acts">${mine?'':`<button class="ok" id="cpy">کپی دستور حمله</button>`}<button class="no" id="cls">بستن</button></div>`);
+  const b=$('#cpy');if(b)b.onclick=()=>{try{navigator.clipboard.writeText('حمله '+c.n);toast('دستور کپی شد؛ توی ربات بچسبون','good')}catch(e){toast('کپی نشد')}};
+  $('#cls').onclick=closeSheet;
+}
+
+/* ---------- شیت ---------- */
+function openSheet(h){$('#sheet').innerHTML='<div class="grab"></div>'+h;$('#sheet').classList.add('on');$('#shade').classList.add('on')}
+function closeSheet(){$('#sheet').classList.remove('on');$('#shade').classList.remove('on');if(S.sel>=0){S.sel=-1;M.dirty=true}}
+$('#shade').onclick=closeSheet;
+
+/* ---------- خبر زنده ---------- */
+let tickQ=[],tickBusy=false;
+function showTick(x){tickQ.push(x);if(!tickBusy)nextTick()}
+function nextTick(){const x=tickQ.shift();if(!x){tickBusy=false;return}tickBusy=true;const s=$('#tickTx');s.textContent=x;s.classList.remove('in');void s.offsetWidth;s.classList.add('in');setTimeout(nextTick,4200)}
+function newsSheet(){openSheet(`<h3>📰 اخبار زنده‌ی جهان</h3><ul class="news">${S.news.slice().reverse().map(n=>`<li>${esc(n.x)}<small>${ago(n.t)}</small></li>`).join('')||'<li>هنوز خبری نیست؛ دنیا آرومه 🌍</li>'}</ul>`)}
+$('#ticker').onclick=newsSheet;
+
+/* ---------- داده و اتصال زنده ---------- */
+function setLive(on){S.live=on;const p=$('#live');p.classList.toggle('off',!on);$('#liveTx').textContent=on?`زنده · ${fa(S.online)} آنلاین`:'در حال اتصال'}
+function applyMe(me){
+  if(!me)return;S.me=me;$('#hName').textContent=me.reg?me.name:((tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user&&tg.initDataUnsafe.user.first_name)||'مهمان');
+  $('#hAv').textContent=me.reg?me.emblem:'🏛';
+}
+function mapStat(){
+  if(!S.map)return;const cr=S.map.crown;
+  $('#mapStat').innerHTML=`🏞 ${fa(S.map.claimed)} استان تصرف‌شده<br>🌍 ${fa(S.map.cs.length)} کشور`;
+  const ch=[];
+  if(cr.i>=0)ch.push(`<button class="chip gold" data-f="${cr.i}">👑 ${esc(cr.name)}</button>`);
+  if(S.me&&S.me.reg)ch.push(`<button class="chip red" data-me="1">📍 ${esc(S.me.name)} · رتبه‌ی ${fa(S.me.rank||'—')}</button>`);
+  ch.push(`<button class="chip" data-news="1">📰 اخبار زنده</button>`);
+  $('#chips').innerHTML=ch.join('');
+  $$('#chips [data-f]').forEach(b=>b.onclick=()=>{focusCountry(+b.dataset.f);countrySheet(+b.dataset.f)});
+  $$('#chips [data-me]').forEach(b=>b.onclick=goMe);
+  $$('#chips [data-news]').forEach(b=>b.onclick=newsSheet);
+}
+let loadingMap=false;
+async function loadMap(){
+  if(loadingMap)return;loadingMap=true;
+  try{
+    if(!S.geo){buildGeo(await (await fetch('api/geo')).json())}
+    const d=await api('api/map?since='+(S.ver||''));
+    if(d.error)return;
+    S.online=d.online;applyMe(d.me);
+    if(d.same){S.map.cs=d.cs;S.map.crown=d.crown;S.map.claimed=d.claimed}
+    else{
+      const old=S.map;S.map=d;S.ver=d.ver;
+      if(old){const nm=old.cs.map(c=>c.n),ch=[];for(let i=0;i<d.own.length;i++){const a=old.own[i]>=0?nm[old.own[i]]:null,b=d.own[i]>=0?d.cs[d.own[i]].n:null;if(a!==b)ch.push(i)}
+        if(ch.length&&ch.length<400)M.flashes.push({cells:ch,t0:performance.now()});if(ch.length)hap('medium')}
+      buildMap();
+    }
+    if(d.same)M.dirty=true;
+    $('#mapLoad').style.display='none';mapStat();setLive(S.live);rankSnapshot();renderActive();
+    if(!loadMap.first){loadMap.first=true;intro()}
+  }catch(e){if(String(e.message)==='auth'){$('#mapLoad').innerHTML='<div>نشست منقضی شده؛ مینی‌اپ رو ببند و دوباره از ربات باز کن</div>'}}
+  finally{loadingMap=false}
+}
+function intro(){
+  const me=S.me&&S.me.reg?S.me.idx:-1;fit();
+  if(me>=0){const xy=capXY(me);if(xy)setTimeout(()=>flyTo(xy[0],xy[1],M.w/(SQ3*13),1600),500)}
+}
+let es,pollT;
+function connect(){
+  try{es=new EventSource('api/live?a='+encodeURIComponent(INIT))}catch(e){setLive(false);return}
+  es.addEventListener('hello',e=>{const d=JSON.parse(e.data);S.online=d.online;S.news=d.news||[];setLive(true);if(S.news.length)showTick(S.news[S.news.length-1].x)});
+  es.addEventListener('map',()=>loadMap());
+  es.addEventListener('stats',()=>loadMap());
+  es.addEventListener('news',e=>{const n=JSON.parse(e.data);S.news.push(n);S.news=S.news.slice(-30);showTick(n.x)});
+  es.addEventListener('online',e=>{S.online=JSON.parse(e.data).n;setLive(true)});
+  es.onerror=()=>setLive(false);
+}
+clearInterval(pollT);pollT=setInterval(()=>{if(document.visibilityState==='visible'&&(!S.live||S.tab==='rank'))loadMap()},15000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')loadMap()});
+
+/* ---------- فروشگاه ---------- */
+let bannerI=0,bannerT;
+const SLIDES=[
+ {bd:'فعال‌سازی آنی',a:'سپر فوری ',b:'برای کشورت!',cta:'خرید سپر',cat:'shield',art:'shield'},
+ {bd:'ارز جنگ',a:'زیرو؛ ',b:'قدرت تسریع',cta:'خرید زیرو',cat:'zero',art:'zero'},
+ {bd:'بازار زنده',a:'غذا و فولاد ',b:'با قیمت لحظه‌ای',cta:'مشاهده منابع',cat:'steel',art:'steel'}];
+function priceTx(it){return it.cur==='zero'?`⚡ ${fa(it.cost)} زیرو`:`💰 ${fa(it.cost)} سکه`}
+function canPay(it){const m=S.me;return it.cur==='zero'?m.zero>=it.cost:m.coins>=it.cost}
+async function loadShop(){
+  try{const d=await api('api/shop');if(d.error==='reg'){S.shop={reg:false};renderShop();return}S.shop=d;applyMe(d.me);renderShop()}catch(e){}
+}
+function renderShop(){
+  const el=$('#t-shop');
+  if(!S.shop){el.innerHTML='<div class="empty">در حال باز کردن فروشگاه…</div>';return}
+  if(S.shop.reg===false){el.innerHTML='<div class="empty">برای خرید باید یه کشور داشته باشی.<br>توی ربات بنویس «ثبت نام».</div>';return}
+  const sh=S.shop,m=S.me,sleft=Math.max(0,m.shield-(Date.now()/1000-m.now));
+  const cats=[{id:'all',n:'همه'},...sh.cats];
+  const list=sh.items.filter(i=>S.cat==='all'||i.cat===S.cat);
+  const rec=(sh.hist||[]).slice(0,4);
+  el.innerHTML=`
+  <div class="wallet"><div class="wal"><small>💰 سکه</small><b>${fa(m.coins)}</b></div><div class="wal z"><small>⚡ زیرو</small><b>${fa(m.zero)}</b><em>≈ ${fa(sh.zero_price)} سکه ${sh.zero_change?`<span class="mv ${sh.zero_change>0?'u':'d'}">${sh.zero_change>0?'▲':'▼'}</span>`:''}</em></div><div class="wal"><small>🌾 غذا</small><b>${fa(m.food)}</b></div><div class="wal"><small>⚙️ فولاد</small><b>${fa(m.steel)}</b></div></div>
+  <div class="shieldbar">${ART.shield}<div class="t">${sleft>0?`سپر فعال · <b>${dur(sleft)}</b>`:'سپر نداری؛ کشورت قابل حمله‌ست'}</div></div>
+  <div style="height:14px"></div>
+  <div class="banner" id="bn">${SLIDES.map((s,i)=>`<div class="slide ${i===bannerI?'on':''}"><div class="tx"><span class="bd">⚡ ${s.bd}</span><h2>${s.a}<em>${s.b}</em></h2><button class="btnR" data-cat="${s.cat}">${s.cta} ‹</button></div><div class="art">${ART[s.art]}</div></div>`).join('')}
+    <button class="bnav r" data-d="-1">›</button><button class="bnav l" data-d="1">‹</button><div class="dots">${SLIDES.map((s,i)=>`<i class="${i===bannerI?'on':''}"></i>`).join('')}</div></div>
+  <div class="sec"><h3>دسته‌بندی‌ها</h3></div>
+  <div class="cats">${cats.map(c=>`<button class="cat ${S.cat===c.id?'on':''}" data-c="${c.id}">${art(c.id)}${c.n}</button>`).join('')}</div>
+  ${rec.length?`<div class="sec"><h3>خریدهای اخیر شما</h3></div><div class="grid2">${rec.map(r=>`<div class="rec"><div class="ic">${art(r.id.split(':')[0])}</div><div class="i"><b>${esc(r.title)}</b><small>${ago(r.t)} · ${r.cur==='zero'?'⚡':'💰'} ${fa(r.cost)}</small></div><button class="rb" data-re="${r.id}">${REFRESH}</button></div>`).join('')}</div>`:''}
+  <div class="sec"><h3><span class="dotA"></span>آفرهای فعال</h3><small>تخفیف‌های زمان‌دار</small></div>
+  ${sh.offers.map(o=>`<div class="offer"><div class="ic">${art(o.cat)}</div><div class="i"><span class="tagA">${o.offer.kind==='discount'?fa(o.offer.pct)+'٪ تخفیف':fa(o.offer.pct)+'٪ هدیه'}</span><b>${esc(o.title)}</b><div class="pr">${o.was?`<s>${fa(o.was)}</s>`:''}${priceTx(o)}</div><div class="cd" data-end="${o.offer.ends}">⏳ ${dur(o.offer.ends-Date.now()/1000)} مانده</div></div><button class="btnA" data-buy="${o.id}">خرید</button></div>`).join('')}
+  <div class="sec"><h3>فروشگاه</h3><small>${fa(list.length)} آیتم</small></div>
+  <div class="items">${list.map(i=>`<div class="item"><div class="ic">${art(i.cat)}</div><b>${esc(i.title)}</b><small>${esc(i.sub)}</small><div class="price"><span class="${i.cur==='zero'?'z':''}">${priceTx(i)}</span><button class="btnS ${canPay(i)?'':'dis'}" data-buy="${i.id}">خرید</button></div></div>`).join('')}</div>`;
+  $$('[data-cat]',el).forEach(b=>b.onclick=()=>{S.cat=b.dataset.cat;renderShop();el.scrollTo({top:el.scrollHeight*.35,behavior:'smooth'})});
+  $$('[data-c]',el).forEach(b=>b.onclick=()=>{S.cat=b.dataset.c;renderShop();hap()});
+  $$('[data-buy]',el).forEach(b=>b.onclick=()=>confirmBuy(b.dataset.buy));
+  $$('[data-re]',el).forEach(b=>b.onclick=()=>confirmBuy(b.dataset.re));
+  $$('[data-d]',el).forEach(b=>b.onclick=()=>{bannerI=(bannerI+ +b.dataset.d+SLIDES.length)%SLIDES.length;setBanner()});
+  $$('.slide',el).forEach(s=>0);
+}
+function setBanner(){$$('#bn .slide').forEach((s,i)=>s.classList.toggle('on',i===bannerI));$$('#bn .dots i').forEach((s,i)=>s.classList.toggle('on',i===bannerI))}
+clearInterval(bannerT);bannerT=setInterval(()=>{if(S.tab==='shop'&&$('#bn')){bannerI=(bannerI+1)%SLIDES.length;setBanner()}},5200);
+setInterval(()=>{$$('.cd').forEach(e=>e.textContent='⏳ '+dur(+e.dataset.end-Date.now()/1000)+' مانده')},30000);
+function confirmBuy(id){
+  const it=[...S.shop.items,...S.shop.offers].find(x=>x.id===id)||S.shop.items.find(x=>x.id===id.replace(/:o$/,''));if(!it)return;
+  const m=S.me,ok=canPay(it),after=it.cur==='zero'?m.zero-it.cost:m.coins-it.cost;
+  openSheet(`<div style="display:flex;gap:14px;align-items:center"><div class="item" style="padding:8px;width:84px;flex:none"><div class="ic" style="height:64px">${art(it.cat)}</div></div><div><h3>${esc(it.title)}</h3><p style="margin:2px 0">${esc(it.sub)}</p></div></div>
+   <div class="kv" style="grid-template-columns:1fr 1fr"><div><small>قیمت</small><b>${priceTx(it)}</b></div><div><small>موجودی بعد از خرید</small><b style="${ok?'':'color:#ff6b6b'}">${ok?fa(Math.floor(after)):'کافی نیست'}</b></div></div>
+   ${ok?'':`<p style="color:#ff8a8a">${it.cur==='zero'?'زیرو کم داری؛ از دسته‌ی «زیرو» با سکه زیرو بخر.':'سکه‌ات کافی نیست؛ از «کار» و «جایزه‌ی روزانه» توی ربات سکه بگیر.'}</p>`}
+   <div class="acts"><button class="ok" id="go" ${ok?'':'disabled style="opacity:.4"'}>تأیید خرید</button><button class="no" id="cls">انصراف</button></div>`);
+  $('#cls').onclick=closeSheet;
+  $('#go').onclick=async()=>{const b=$('#go');b.disabled=true;b.textContent='در حال خرید…';
+    try{const r=await api('api/buy',{method:'POST',body:JSON.stringify({item:id})});
+      if(r.me)applyMe(r.me);if(r.shop){S.shop={...S.shop,...r.shop}}
+      closeSheet();toast(r.msg,r.ok?'good':'bad');hap(r.ok?'ok':'bad');renderShop();renderMe();loadMap()}
+    catch(e){closeSheet();toast('اتصال قطع شد؛ دوباره امتحان کن','bad')}};
+}
+
+/* ---------- رتبه‌ها ---------- */
+function rankSnapshot(){
+  if(!S.map)return;const cs=S.map.cs,by=S.rankBy,ord=[...cs].sort((a,b)=>(b[by==='score'?'s':'l']-a[by==='score'?'s':'l'])||(b.s-a.s));
+  const cur={};ord.forEach((c,i)=>cur[c.n]=i+1);
+  for(const n in cur){const p=S.prevRank[n];if(p&&p!==cur[n])S.moves[n]={d:p-cur[n],t:Date.now()}}
+  S.prevRank=cur;S.ord=ord;
+}
+function renderRank(){
+  const el=$('#t-rank');if(!S.map){el.innerHTML='<div class="empty">در حال بارگذاری…</div>';return}
+  const by=S.rankBy,ord=S.ord||[],meN=S.me&&S.me.reg?S.me.name:null,cr=S.map.crown.i>=0?S.map.cs[S.map.crown.i].n:null;
+  el.innerHTML=`<div class="seg"><button data-r="score" class="${by==='score'?'on':''}">بر اساس قدرت</button><button data-r="land" class="${by==='land'?'on':''}">بر اساس استان</button></div>`+
+  ord.slice(0,60).map((c,i)=>{const mv=S.moves[c.n],fresh=mv&&Date.now()-mv.t<12000;const g=i<3?` g${i+1}`:'';
+    return `<div class="row ${c.n===meN?'me':''} ${fresh?(mv.d>0?'up':'dn'):''}" data-k="${S.map.cs.indexOf(c)}"><div class="rk${g}">${fa(i+1)}</div><div class="cdot" style="background:rgb(${c.c})"></div><span style="font-size:20px">${esc(c.e)}</span>
+    <div class="nm"><b>${esc(c.n)}${c.n===cr?' 👑':''}${fresh?`<span class="mv ${mv.d>0?'u':'d'}">${mv.d>0?'▲':'▼'}${fa(Math.abs(mv.d))}</span>`:''}</b><small>${c.sh?'🛡 سپر فعال · ':''}${c.npc?'🤖 NPC · ':''}${fa(c.l)} استان</small></div>
+    <div class="v">${fa(by==='score'?c.s:c.l)}<small>${by==='score'?'قدرت':'استان'}</small></div></div>`}).join('');
+  $$('[data-r]',el).forEach(b=>b.onclick=()=>{S.rankBy=b.dataset.r;rankSnapshot();renderRank()});
+  $$('.row',el).forEach(r=>r.onclick=()=>{const k=+r.dataset.k;setTab('map');setTimeout(()=>{focusCountry(k);S.sel=k;M.dirty=true;countrySheet(k)},120)});
+}
+
+/* ---------- کشور من ---------- */
+function renderMe(){
+  const el=$('#t-me'),m=S.me;if(!m){el.innerHTML='<div class="empty">در حال بارگذاری…</div>';return}
+  if(!m.reg){el.innerHTML=`<div class="hero"><div class="big">🏛</div><div><h2>هنوز کشور نداری</h2><small>توی ربات بنویس «ثبت نام» تا کشورت ساخته بشه و روی نقشه بیاد.</small></div></div><div class="acts"><button class="ok" onclick="tg&&tg.close()">برگشت به ربات</button></div>`;return}
+  const sleft=Math.max(0,m.shield-(Date.now()/1000-m.now));
+  el.innerHTML=`<div class="hero"><div class="big">${esc(m.emblem)}</div><div><h2>${esc(m.name)}</h2><small>رتبه‌ی ${fa(m.rank||'—')} از ${fa(S.map?S.map.cs.length:0)} کشور ${m.emperor?'· 👑 امپراتور':''}</small></div></div>
+  <div class="stats">
+   <div class="sc"><small>استان‌ها</small><b>${fa(m.land)}</b></div><div class="sc"><small>قدرت کل</small><b>${fa(m.score)}</b></div>
+   <div class="sc"><small>⚡ فرمان نظامی</small><b>${fa(Math.floor(m.orders))} / ${fa(m.orders_max)}</b><div class="bar"><i style="width:${m.orders/m.orders_max*100}%"></i></div></div>
+   <div class="sc"><small>🙂 رضایت مردم</small><b>${fa(m.sat)}٪</b><div class="bar"><i class="b" style="width:${m.sat}%"></i></div></div>
+   <div class="sc"><small>👥 جمعیت</small><b>${fa(m.pop)}</b></div><div class="sc"><small>🛡 سپر</small><b>${sleft>0?dur(sleft):'ندارد'}</b></div>
+  </div>
+  ${m.emperor?'<div class="crownCard">👑 <b>تو امپراتور جهانی!</b> خراج ساعتی و فرمان اضافه می‌گیری؛ ولی همه دنبال تاجت‌ان.</div>':''}
+  <div class="acts" style="margin-top:14px"><button class="ok" id="meShop">🛒 فروشگاه سپر و منابع</button><button class="no" id="meMap">🗺 کشورم روی نقشه</button></div>`;
+  $('#meShop').onclick=()=>setTab('shop');$('#meMap').onclick=()=>{setTab('map');setTimeout(goMe,150)};
+}
+function renderActive(){if(S.tab==='rank')renderRank();else if(S.tab==='me')renderMe();else if(S.tab==='shop'&&S.shop&&S.me&&S.shop.reg!==false&&!$('#sheet.on'))renderShop()}
+
+/* ---------- ناوبری ---------- */
+function setTab(t){
+  S.tab=t;closeSheet();$$('.tab').forEach(x=>x.classList.toggle('on',x.id==='t-'+t));$$('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+  if(t==='map'){resize();M.dirty=true}if(t==='shop'){renderShop();loadShop()}if(t==='rank'){rankSnapshot();renderRank();loadMap()}if(t==='me'){renderMe();api('api/me').then(applyMe).then(renderMe).catch(()=>{})}
+  hap();
+}
+$$('#nav button').forEach(b=>b.onclick=()=>setTab(b.dataset.t));
+addEventListener('resize',()=>{resize()});
+if(window.ResizeObserver)new ResizeObserver(()=>resize()).observe($('#t-map'));
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>{M.dirty=true});
+
+/* ---------- شروع ---------- */
+requestAnimationFrame(loop);
+if(!INIT){$('#mapLoad').innerHTML='<div>این صفحه فقط داخل تلگرام کار می‌کنه.<br>از ربات، دستور «نقشه» رو بزن.</div>'}
+else{loadMap().then(()=>{connect();loadShop()})}
+</script>
+</body>
+</html>
