@@ -29,6 +29,12 @@ def plain(t):
     return html.unescape(_TAG.sub("", t or "")).strip()
 
 
+def _ready(c):
+    """دلیل اینکه همین الان نمیشه حمله کرد (بدون ارتش، فرمان یا سکه‌ی بسیج)؛ خالی = آماده."""
+    e = war.check_ready(c, 30)
+    return plain(e) if e else ""
+
+
 def _unit_meta():
     return {k: dict(n=v["n"], e=v["e"], atk=v["atk"], dfn=v["dfn"], br=v["br"]) for k, v in U.items()}
 
@@ -132,7 +138,7 @@ async def h_prep(request):
         if kind == "camp":
             t = war.camp_enemy(c["camp"]["stage"])
         elif kind == "boss":
-            return W._json(dict(me=my_state(c), units=_unit_meta(), kind="boss"))
+            return W._json(dict(me=my_state(c), units=_unit_meta(), kind="boss", ready=_ready(c)))
         elif q.get("tid", "").lstrip("-").isdigit():
             t = await db.load(int(q["tid"]))
         elif q.get("name"):
@@ -144,7 +150,7 @@ async def h_prep(request):
         npc = bool(t.get("npc"))
         row = _row(c, t, npc)
         row["block"] = None if kind == "camp" else await _block(c, t)
-        out = dict(me=my_state(c), units=_unit_meta(), t=row, kind="camp" if kind == "camp" else "npc" if npc else "pvp",
+        out = dict(ready=_ready(c), me=my_state(c), units=_unit_meta(), t=row, kind="camp" if kind == "camp" else "npc" if npc else "pvp",
                    stance={k: dict(n=v["n"], e=v["e"], d=v["d"], atk=v["atk"], loss=v["loss"], loot=v["loot"]) for k, v in E.STANCES.items()},
                    crown=config.CROWN_BOUNTY if crown.is_holder(t["_id"]) else 0, cq=config.CONQUEST_RATIO)
         i = None if npc else war.intel_of(c, t["_id"])
