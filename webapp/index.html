@@ -243,6 +243,7 @@ nav button.on{color:#fff;background:linear-gradient(180deg,rgba(224,42,42,.22),r
         <button id="bSearch" aria-label="جستجوی کشور">🔍</button>
         <button id="bTour" aria-label="تور سینمایی">🎬</button>
         <button id="bNight" aria-label="شب و روز" class="on">🌗</button>
+        <button id="bLayer" aria-label="لایه‌ی نقشه">🗺</button>
         <button id="bTilt" aria-label="نمای سه‌بعدی" class="on">⛰</button>
       </div>
       <div class="chips" id="chips"></div>
@@ -349,7 +350,7 @@ varying vec3 vP;
 uniform sampler2D tCell,tSm,tFx,tPal,tNo;
 uniform vec2 uGrid,uWorld,uSmPx;
 uniform vec3 uLight,uCam,uMeP;
-uniform float uTime,uPxAng,uSel,uCrown,uMe,uPalW,uNight;
+uniform float uTime,uPxAng,uSel,uCrown,uMe,uPalW,uNight,uMode;
 uniform vec3 uSun;
 const float PI=3.14159265;const float SQ3=1.7320508;
 /* نویز قدیمی (فقط برای تاب شش‌ضلعی‌ها؛ با JS هماهنگه) */
@@ -490,7 +491,7 @@ void main(){
   vec3 lc=tc*(0.46+0.54*shade)*ao;
 
   /* ===== سرزمین کشورها ===== */
-  float e_px=1000.0;float diff=0.0;vec3 pc=vec3(1.0);float isSel=0.0;float isCrown=0.0;float isMe=0.0;
+  float powA=0.0;float e_px=1000.0;float diff=0.0;vec3 pc=vec3(1.0);float isSel=0.0;float isCrown=0.0;float isMe=0.0;
   if(cLand>0.5){
     float ang=atan(dl.y,dl.x);
     float j=mod(floor(ang/(PI/3.0)+0.5),6.0);
@@ -499,11 +500,25 @@ void main(){
     float ein=0.8660254-max(abs(dl.x),0.5*abs(dl.x)+0.8660254*abs(dl.y));
     e_px=max(ein,0.0)*hexPx;
     if(o>-0.5){
-      pc=texture2D(tPal,vec2((o+0.5)/uPalW,0.5)).rgb;
+      vec4 pt=texture2D(tPal,vec2((o+0.5)/uPalW,0.5));pc=pt.rgb;powA=pt.a;
       isSel=1.0-step(0.5,abs(o-uSel));isCrown=1.0-step(0.5,abs(o-uCrown));isMe=1.0-step(0.5,abs(o-uMe));
       lc=mix(lc,lc*0.70+pc*(0.40+0.60*shade)*0.46,0.24+0.16*isSel);
       if(nd.a>0.5&&abs(no-o)>0.5)diff=1.0;
     }
+  }
+  if(uMode>0.5&&uMode<1.5&&cLand>0.5){
+    vec3 hc=mix(vec3(0.10,0.32,0.85),vec3(1.0,0.84,0.14),smoothstep(0.0,0.55,powA));
+    hc=mix(hc,vec3(1.0,0.16,0.10),smoothstep(0.50,1.0,powA));
+    float ownd=step(-0.5,o);
+    lc=mix(vec3(dot(lc,vec3(0.3,0.59,0.11)))*0.55,hc*(0.50+0.50*shade),mix(0.0,0.82,ownd));
+  }
+  if(uMode>1.5){
+    vec3 hy=mix(vec3(0.14,0.40,0.22),vec3(0.78,0.66,0.34),smoothstep(0.18,0.50,ee));
+    hy=mix(hy,vec3(0.50,0.38,0.30),smoothstep(0.50,0.78,ee));hy=mix(hy,vec3(0.97),smoothstep(0.80,0.98,ee));
+    float tl=1.0-smoothstep(0.0,0.07,abs(fract(ee*12.0)-0.5));
+    vec3 tcol=hy*(0.55+0.45*shade);
+    tcol=mix(tcol,vec3(0.12,0.07,0.03),tl*(0.30+0.40*detail));
+    lc=mix(lc,tcol,0.9);
   }
   float sc=clamp(hexPx/11.0,0.45,1.0);
   float dark=diff*(1.0-smoothstep(0.6*sc,1.7*sc,e_px));
@@ -649,7 +664,7 @@ function glUploadMap(){
   const gl=M.gl,g=S.geo;if(!gl||!g||!S.map||!M.tCell)return;
   gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,M.tCell);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,g.W,g.H,0,gl.RGBA,gl.UNSIGNED_BYTE,M.cd);
-  const n=Math.max(1,S.map.cs.length),pal=new Uint8Array(n*4);S.map.cs.forEach((c,i)=>{pal[i*4]=c.c[0];pal[i*4+1]=c.c[1];pal[i*4+2]=c.c[2];pal[i*4+3]=255});
+  const n=Math.max(1,S.map.cs.length),pal=new Uint8Array(n*4),rk=[];S.map.cs.map((c,i)=>i).sort((a,b)=>S.map.cs[b].s-S.map.cs[a].s).forEach((i,r)=>{rk[i]=r});S.map.cs.forEach((c,i)=>{pal[i*4]=c.c[0];pal[i*4+1]=c.c[1];pal[i*4+2]=c.c[2];pal[i*4+3]=Math.round(255*(1-rk[i]/Math.max(1,n-1)))});
   gl.activeTexture(gl.TEXTURE3);gl.bindTexture(gl.TEXTURE_2D,M.tPal);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,n,1,0,gl.RGBA,gl.UNSIGNED_BYTE,pal);M.palW=n;
 }
 function glUploadFx(){
@@ -821,7 +836,7 @@ function drawGL(ts){
   gl.uniform2f(u.uGrid,g.W,g.H);gl.uniform2f(u.uWorld,worldW(),worldH());gl.uniform2f(u.uSmPx,1/M.sm.w,1/M.sm.h);
   gl.uniform3f(u.uLight,lx/ll,ly/ll,lz/ll);gl.uniform3f(u.uCam,e[0],e[1],e[2]);
   gl.uniform1f(u.uTime,M.reduce?0:ts/1000);gl.uniform1f(u.uPxAng,angPerPx());
-  gl.uniform1f(u.uSel,S.sel);gl.uniform1f(u.uCrown,S.map.crown.i);gl.uniform1f(u.uMe,S.me&&S.me.reg?S.me.idx:-1);gl.uniform1f(u.uPalW,M.palW);gl.uniform1f(u.uNight,S.night?1:0);{const mi=S.me&&S.me.reg?S.me.idx:-1,mc=mi>=0?M.cap[mi]:null;gl.uniform3f(u.uMeP,mc?mc.p[0]:0,mc?mc.p[1]:0,mc?mc.p[2]:0)}gl.uniform1f(u.uAmp,M.vtf?AMP:0);{const sn=sunVec();gl.uniform3f(u.uSun,sn[0],sn[1],sn[2])}
+  gl.uniform1f(u.uSel,S.sel);gl.uniform1f(u.uCrown,S.map.crown.i);gl.uniform1f(u.uMe,S.me&&S.me.reg?S.me.idx:-1);gl.uniform1f(u.uPalW,M.palW);gl.uniform1f(u.uNight,S.night?1:0);gl.uniform1f(u.uMode,S.mode||0);{const mi=S.me&&S.me.reg?S.me.idx:-1,mc=mi>=0?M.cap[mi]:null;gl.uniform3f(u.uMeP,mc?mc.p[0]:0,mc?mc.p[1]:0,mc?mc.p[2]:0)}gl.uniform1f(u.uAmp,M.vtf?AMP:0);{const sn=sunVec();gl.uniform3f(u.uSun,sn[0],sn[1],sn[2])}
   gl.drawElements(gl.TRIANGLES,M.nIdx,gl.UNSIGNED_SHORT,0);
 }
 function stepFlash(){
@@ -891,6 +906,13 @@ function drawFx(ts){
     x.fillStyle=col+'.9)';x.beginPath();x.arc(a[0],a[1],w*.9*pl,0,7);x.fill()};
   if(cr>=0)beam(cr,bh,'rgba(255,205,60,',3.2);
   if(me>=0&&me!==cr)beam(me,bh*.7,'rgba(255,74,74,',2.4);
+  /* ✈🚢 رفت‌وآمد زنده بین پایتخت‌ها */
+  {const cp=M.cap.map((c,i)=>c?i:-1).filter(i=>i>=0);FX.tr=(FX.tr||[]).filter(t=>now-t.t0<t.d);
+   if(cp.length>1&&FX.tr.length<7&&Math.random()<.04){const a=cp[(Math.random()*cp.length)|0];let b=cp[(Math.random()*cp.length)|0];if(a!==b)FX.tr.push({a,b,t0:now,d:7000+Math.random()*7000,air:Math.random()<.5})}
+   for(const T of FX.tr){const ca=M.cap[T.a],cb=M.cap[T.b];if(!ca||!cb)continue;const u=(now-T.t0)/T.d,om=Math.acos(clampv(ca.p[0]*cb.p[0]+ca.p[1]*cb.p[1]+ca.p[2]*cb.p[2],-1,1));if(om<.02)continue;
+     const fa_=Math.min(1,u*8,(1-u)*8),e=arcAt(ca.p,cb.p,u,om,T.air?.03+om*.05:.004);if(!vis(e.p))continue;const q=scr(e.p,e.r),e2=arcAt(ca.p,cb.p,Math.max(0,u-.03),om,T.air?.03+om*.05:.004),q2=scr(e2.p,e2.r);if(!q||!q2)continue;
+     const gr=x.createLinearGradient(q2[0],q2[1],q[0],q[1]);gr.addColorStop(0,'rgba(180,230,255,0)');gr.addColorStop(1,`rgba(${T.air?'255,245,210':'150,235,255'},${.8*fa_})`);
+     x.strokeStyle=gr;x.lineWidth=T.air?1.4:1.8;x.beginPath();x.moveTo(q2[0],q2[1]);x.lineTo(q[0],q[1]);x.stroke();x.fillStyle=`rgba(255,255,255,${.9*fa_})`;x.beginPath();x.arc(q[0],q[1],T.air?1.5:1.8,0,7);x.fill()}}
   FX.rings=FX.rings.filter(r=>now-r.t0<2400);
   for(const r of FX.rings){const c=M.cap[r.k];if(!c||!vis(c.p))continue;const q=scr(c.p,1);if(!q)continue;const u=(now-r.t0)/2400;
     const col=cs[r.k]?cs[r.k].c:[255,255,255];for(let j=0;j<2;j++){const v=Math.max(0,u-j*.22);if(v<=0||v>=1)continue;
@@ -939,6 +961,8 @@ function searchSheet(){
 $('#bSearch').onclick=searchSheet;
 S.tilt=(()=>{try{return localStorage.getItem('ezt')!=='0'}catch(e){return true}})();$('#bTilt').classList.toggle('on',S.tilt);
 $('#bTilt').onclick=()=>{S.tilt=!S.tilt;try{localStorage.setItem('ezt',S.tilt?'1':'0')}catch(e){}$('#bTilt').classList.toggle('on',S.tilt);M.dirty=true;hap();toast(S.tilt?'⛰ نمای سه‌بعدی: با زوم، دوربین کج میشه':'🗺 نمای از بالا')};
+const LAYERS=['🏛 نقشه‌ی سیاسی','🔥 نقشه‌ی قدرت: آبی ضعیف ← قرمز قوی','⛰ نقشه‌ی ارتفاع و خطوط تراز'];
+$('#bLayer').onclick=()=>{S.mode=((S.mode||0)+1)%3;$('#bLayer').classList.toggle('on',S.mode>0);M.dirty=true;hap();toast(LAYERS[S.mode])};
 $('#bNight').onclick=()=>{S.night=!S.night;try{localStorage.setItem('ezn',S.night?'1':'0')}catch(e){}$('#bNight').classList.toggle('on',S.night);M.dirty=true;hap();toast(S.night?'🌗 شب و روز زنده: خاک کشورها شب‌ها می‌درخشه':'☀️ نور ثابت')};
 
 /* ---- لمس و ماوس ---- */
@@ -977,17 +1001,29 @@ function focusCountry(k){const c=M.cap[k];if(c)flyTo(c.lon,c.lat,dFocus(15))}
 function pick(px,py){
   const l=hit(px,py);if(l<0){S.sel=-1;closeSheet();M.dirty=true;return}
   const o=S.map.own[l];hap();
-  if(o>=0){S.sel=o;M.dirty=true;countrySheet(o);const c=M.cap[o];if(c)flyTo(c.lon,c.lat,Math.min(M.d,dFocus(24)),900)}
-  else{S.sel=-1;M.dirty=true;const b=+S.geo.elev[l];openSheet(`<h3>🌱 زمین آزاد</h3><p>${['دشت‌های هموار','تپه‌ماهورهای جنگلی','کوهستان','قله‌های سنگی'][b]}؛ هنوز صاحب نداره. هر کشور با «تسخیر» و پیروزی قاطع می‌تونه یه استان بگیره و خاکش رو بزرگ‌تر کنه.</p>`)}
+  if(o>=0){S.sel=o;M.dirty=true;countrySheet(o,l);const c=M.cap[o];if(c)flyTo(c.lon,c.lat,Math.min(M.d,dFocus(24)),900)}
+  else{S.sel=-1;M.dirty=true;const b=+S.geo.elev[l];openSheet(`<h3>🌱 زمین آزاد</h3>${cellInfo(l)}<p>${['دشت‌های هموار','تپه‌ماهورهای جنگلی','کوهستان','قله‌های سنگی'][b]}؛ هنوز صاحب نداره. هر کشور با «تسخیر» و پیروزی قاطع می‌تونه یه استان بگیره و خاکش رو بزرگ‌تر کنه.</p>`)}
 }
-function countrySheet(k){
+function cellInfo(l){
+  const g=S.geo,id=g.cells[l];if(id==null)return'';const[wx,wy]=cellXY(id),[lo,la]=llOfWorld(wx,wy),e=M.elv[id]||0;
+  const dg=(v,p,n)=>fa(Math.abs(v*180/PI).toFixed(1))+'° '+(v>=0?p:n);
+  const t=e<.2?'🌾 دشت و جلگه':e<.42?'🌲 تپه‌ماهور جنگلی':e<.7?'⛰ کوهستان':'🏔 قله‌های سنگی',zn=Math.abs(la)>1.1?'❄️ قطبی':Math.abs(la)>.75?'🌿 سرد':Math.abs(la)<.4?'☀️ گرمسیری':'🍃 معتدل';
+  return`<div class="kv"><div><small>موقعیت</small><b style="font-size:12px">${dg(la,'شمالی','جنوبی')}<br>${dg(lo,'شرقی','غربی')}</b></div><div><small>زمین</small><b style="font-size:12px">${t}</b></div><div><small>آب‌وهوا · ارتفاع</small><b style="font-size:12px">${zn}<br>≈ ${fa(Math.round(e*4800/50)*50)} متر</b></div></div>`;
+}
+async function setCapital(cell){
+  try{const r=await api('api/setcap',{method:'POST',body:JSON.stringify({cell})});
+    toast(r.msg||'انجام شد',r.ok?'good':'bad');hap(r.ok?'ok':'bad');if(r.ok){closeSheet();S.ver=null;loadMap()}}
+  catch(e){toast('اتصال برقرار نشد','bad')}
+}
+function countrySheet(k,l){
   const c=S.map.cs[k],cs=S.map.cs,pow=[...cs].sort((a,b)=>b.s-a.s).indexOf(c)+1,total=cs.reduce((a,x)=>a+x.l,0),mine=S.me&&S.me.idx===k;
   const tags=[mine?'<span style="color:#ff6b6b">📍 کشور تو</span>':'',S.map.crown.i===k?'<span style="color:#ffcd2d">👑 امپراتور جهان</span>':'',c.sh?'<span style="color:#7fb0ff">🛡 سپر فعال</span>':'',c.npc?'<span style="color:var(--dim)">🤖 کشور ناظر (NPC)</span>':''].filter(Boolean).join(' · ');
   openSheet(`<h3><span style="font-size:26px">${esc(c.e)}</span>${esc(c.n)}</h3><p>${tags||'کشور بازیکن'}</p>
    <div class="kv"><div><small>استان</small><b>${fa(c.l)}</b></div><div><small>قدرت</small><b>${fa(c.s)}</b></div><div><small>رتبه</small><b>${fa(pow)}</b></div></div>
-   <div class="bar"><i style="width:${Math.min(100,c.l/total*100*3)}%"></i></div><p>${fa(Math.round(c.l/total*100))}٪ از خاک اشغال‌شده‌ی جهان</p>
+   ${l!=null?cellInfo(l):''}<div class="bar"><i style="width:${Math.min(100,c.l/total*100*3)}%"></i></div><p>${fa(Math.round(c.l/total*100))}٪ از خاک اشغال‌شده‌ی جهان</p>
    ${mine||c.npc&&false?'':`<p>برای حمله توی ربات بنویس: <b>حمله ${esc(c.n)}</b> یا برای گرفتن استان <b>تسخیر ${esc(c.n)}</b>${c.sh?'. سپر داره؛ تا نشکنه نمی‌تونی بهش حمله کنی.':''}</p>`}
-   <div class="acts">${mine?'':`<button class="ok" id="cpy">کپی دستور حمله</button>`}<button class="no" id="cls">بستن</button></div>`);
+   <div class="acts">${mine?(l!=null&&S.geo.cells[l]!==c.cap?`<button class="ok" id="mkcap">🏛 این استان رو پایتخت کن</button>`:'<span style="color:var(--dim);font-size:12px;align-self:center">🏛 این پایتخت توئه</span>'):`<button class="ok" id="cpy">کپی دستور حمله</button>`}<button class="no" id="cls">بستن</button></div>`);
+  const mk=$('#mkcap');if(mk)mk.onclick=()=>{mk.disabled=true;setCapital(S.geo.cells[l])};
   const b=$('#cpy');if(b)b.onclick=()=>{try{navigator.clipboard.writeText('حمله '+c.n);toast('دستور کپی شد؛ توی ربات بچسبون','good')}catch(e){toast('کپی نشد')}};
   $('#cls').onclick=closeSheet;
 }
@@ -1037,7 +1073,7 @@ async function loadMap(){
         if(ch.length&&ch.length<400)M.flashes.push({cells:ch,t0:performance.now()});if(ch.length)hap('medium')}
       buildMap();
     }
-    if(d.same)M.dirty=true;
+    if(d.same){glUploadMap();M.dirty=true}
     $('#mapLoad').classList.add('out');M.ready=true;mapStat();setLive(S.live);rankSnapshot();renderActive();
     if(!loadMap.first){loadMap.first=true;intro()}
   }catch(e){if(String(e.message)==='auth'){$('#mapLoad').innerHTML='<div>نشست منقضی شده؛ مینی‌اپ رو ببند و دوباره از ربات باز کن</div>'}}
