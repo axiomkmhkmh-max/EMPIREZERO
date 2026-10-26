@@ -1290,7 +1290,7 @@ async function warPrep(kind,q){
   WR.P=p;WR.kind=p.kind;WR.q=q;WR.st='bal';WR.cq=false;WR.pct=p.best?Math.max(30,p.best.pct):60;WR.back=()=>WR.d?warHub(WR.tab||'pvp'):warClose();
   if(!WR.d)WR.back=warClose;
   const boss=p.kind==='boss',t=p.t,m=p.me;
-  const nm=boss?'تهدید جهانی':t.name,em=boss?'🌑':t.e;
+  const nm=boss?'تهدید جهانی':t.name,em=boss?'🌑':t.e,bl=(t&&t.block)||p.ready||'';
   $('#wTt').textContent=boss?'🌑 جنگ بزرگ':'🎯 '+nm;
   const fr=p.fronts?`<div class="sec" style="margin:14px 2px 6px"><h3>🧭 پیش‌نمایش جبهه‌ها (۱۰۰٪ ارتش)</h3></div>`+p.fronts.map(f=>`<div class="fr"><span>${f[0]} ${f[1]}</span><div class="tr"><i style="width:${f[2]+f[3]?Math.round(f[2]/(f[2]+f[3])*100):0}%"></i></div><span>${fa(f[2])} ⚔️ ${fa(f[3])}</span></div>`).join(''):'';
   wB.innerHTML=`<div class="vs"><div class="s">${rect(S.me.name,S.me.emblem,1)}<b>${esc(S.me.name)}</b><small>🗡 ${fa(m.atk)}</small></div><i>VS</i><div class="s">${boss?rect('?',em,1):rect(nm,em,1)}<b>${esc(nm)}</b><small>${boss?'':'🛡 '+(t.exact?'':'~')+fa(t.dfn)+(t.exact?' ✅':' (مه جنگ ±۳۰٪)')}</small></div></div>
@@ -1300,7 +1300,7 @@ async function warPrep(kind,q){
   <div class="pcts">${[30,60,100].map(x=>`<button data-p="${x}">${fa(x)}٪</button>`).join('')}</div><input class="wr" id="pcr" type="range" min="10" max="100" step="5" value="${WR.pct}">
   ${p.chance?`<div class="gw"><div class="gg" id="chG"><b id="chN">0</b></div><div id="chT"></div></div>`:''}${fr}
   <div class="mini">${!boss&&t&&!t.exact&&p.kind==='pvp'?'<button id="wSpy">🕵️ جاسوسی · ۵۰۰</button>':''}${p.kind!=='camp'&&!boss?`<button id="wCq">🏴 تسخیر (۲ فرمان)</button>`:''}</div>
-  ${t&&t.block?`<div class="blk">${esc(t.block)}</div>`:''}<button class="bigb" id="wGo" ${t&&t.block?'disabled':''}>⚔️ فایت!</button>`;
+  <div class="blk" id="wErr" style="${bl?'':'display:none'}">${esc(bl)}</div><button class="bigb" id="wGo" ${bl?'disabled':''}>⚔️ فایت!</button>`;
   const upd=()=>{
     $$('#wBody .stn button').forEach(b=>b.classList.toggle('on',b.dataset.s===WR.st));$$('#wBody .pcts button').forEach(b=>b.classList.toggle('on',+b.dataset.p===WR.pct));
     $('#pcv').textContent=fa(WR.pct)+'٪';$('#pcr').value=WR.pct;
@@ -1318,7 +1318,7 @@ async function warGo(){
   if(WR.busy)return;WR.busy=true;const p=WR.P,go=$('#wGo');if(go)go.disabled=true;hap('heavy');
   const kind=p.kind;const r=await wa('api/war/attack',{method:'POST',body:JSON.stringify({kind,tid:p.t?p.t.id:0,pct:WR.pct,stance:WR.st,conquest:WR.cq})});
   WR.busy=false;if(!r){if(go)go.disabled=false;return}
-  if(!r.ok){toast(r.msg.split('\n')[0].slice(0,140),'bad');hap('bad');if(go)go.disabled=false;if(r.me)applyMe(r.me);return}
+  if(!r.ok){const er=$('#wErr');if(er){er.style.display='';er.textContent=r.msg}toast(r.msg.split('\n')[0].slice(0,140),'bad');hap('bad');if(go)go.disabled=false;if(r.me)applyMe(r.me);return}
   if(r.me)applyMe(r.me);arena(r.raw,r.msg);
 }
 
