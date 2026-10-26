@@ -59,6 +59,14 @@ def report(r, an, dn):
     return "\n".join(s)
 
 
+def _raw(r):
+    """خروجی engine.battle رو برای مینی‌اپ JSON-پذیر می‌کنه (جبهه‌ها لیست میشن)."""
+    keys = ("win", "A", "D", "la", "ld", "loot", "destroyed", "hits", "mis", "icpt", "air", "stance", "ratio", "decisive", "back_a", "back_d")
+    out = {k: r.get(k) for k in keys}
+    out["fronts"] = [list(f) for f in r.get("fronts", [])]
+    return out
+
+
 def log_battle(c, text):
     c.setdefault("blog", []).append(text[:170])
     c["blog"] = c["blog"][-8:]
@@ -236,6 +244,7 @@ def do_camp(c, pct, stance):
     e = camp_enemy(stage)
     E.spend_orders(c, 1)
     c["treasury"] -= logi_cost(c, pct)
+    sent = {k: int(c["units"].get(k, 0) * pct / 100) for k in ATK}
     r = E.battle(c, e, pct / 100, 0.0, stance, 0.0)
     if not r:
         return "🪖 ارتش تهاجمی نداری"
@@ -262,6 +271,8 @@ def do_camp(c, pct, stance):
     else:
         extra = f"\n\n💀 مرحله‌ی {stage} رو نتونستی بگیری؛ ارتش رو تقویت کن یا تاکتیک رو عوض کن."
         log_battle(c, f"🎖 کمپین {stage}: شکست")
+    cine.record(c["_id"], dict(kind="camp", an=c["name"], dn=e["name"], ae=c.get("emblem", "🏛"), de="👑" if stage % config.CAMP_BOSS_EVERY == 0 else "🌍",
+                               sent=sent, extra=extra, stage=stage, pct=pct, **_raw(r)))
     return txt + extra
 
 
@@ -418,6 +429,8 @@ async def boss_hit(c, pct):
            f"☠️ تلافی دشمن: {fmt_units(lost)} · 🏆 +{pts:.0f} امتیاز جنگ\n❤️ HP مانده: {n(max(0, BOSS['hp']))}")
     log_battle(c, f"🌑 ضربه به {BOSS['name']}: {n(dmg)} آسیب")
     cine.stash(c["_id"], cine.boss_frames(BOSS["name"], dmg, dmg / BOSS["hp_max"] * 100))
+    cine.record(c["_id"], dict(kind="boss", an=c["name"], dn=BOSS["name"], ae=c.get("emblem", "🏛"), de="🌑", sent=sent, dmg=dmg, lost=lost, pct=pct,
+                               hp=max(0.0, BOSS["hp"]), hp_max=BOSS["hp_max"], killed=BOSS["hp"] <= 0, extra=""))
     if BOSS["hp"] <= 0:
         txt += "\n\n🎉 <b>تهدید نابود شد!</b> جایزه‌ها در حال ارسال..."
         await boss_finish(True, cur=c)
@@ -474,6 +487,7 @@ async def do_attack(c, tid, pct, stance="bal", conquest=False):
         E.spend_orders(c, need)
     c["treasury"] -= logi_cost(c, pct)
     rel = 1.0 if npc else max(0.3, min(1.6, math.sqrt(E.score(t) / max(1, E.score(c)))))
+    sent = {k: int(c["units"].get(k, 0) * pct / 100) for k in ATK}
     r = E.battle(c, t, pct / 100, 0.0 if npc else await ally_support(t), stance, rel * (1.25 if revenge else 1.0))
     if not r:
         return "🪖 ارتش تهاجمی نداری"
@@ -537,6 +551,8 @@ async def do_attack(c, tid, pct, stance="bal", conquest=False):
     an, dn = crown.tag(c["_id"]) + c["name"], crown.tag(t["_id"]) + t["name"]
     txt = report(r, an, dn) + extra
     cine.stash(c["_id"], cine.battle_frames(r, an, dn))
+    cine.record(c["_id"], dict(kind="npc" if npc else "pvp", an=c["name"], dn=t["name"], ae=c.get("emblem", "🏛"), de=t.get("emblem", "🏛"),
+                               sent=sent, extra=extra, conquest=bool(conquest), pct=pct, crown=bool(crown_def), **_raw(r)))
     if not npc:
         tok = OWNER.set(tid)
         try:

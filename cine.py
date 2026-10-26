@@ -22,6 +22,19 @@ def stash(uid, frames):
         _STASH[uid] = (time.time(), frames)
 
 
+_RAW = {}            # uid → (زمان، داده‌ی ساخت‌یافته‌ی نبرد) برای مینی‌اپ
+
+
+def record(uid, data):
+    """war.py نتیجه‌ی ساخت‌یافته‌ی نبرد رو این‌جا می‌ذاره؛ مینی‌اپ (fightapi.py) برمی‌داره و روی نقشه نمایش میده."""
+    _RAW[uid] = (time.time(), data)
+
+
+def take_raw(uid):
+    t = _RAW.pop(uid, None)
+    return t[1] if t and time.time() - t[0] <= _TTL else None
+
+
 def take(uid):
     t = _STASH.pop(uid, None)
     if not t or time.time() - t[0] > _TTL:

@@ -410,6 +410,8 @@ def make_app():
     app.router.add_post("/api/buy", h_buy)
     app.router.add_post("/api/setcap", h_setcap)
     app.router.add_get("/api/live", h_live)
+    import fightapi
+    fightapi.add_routes(app)                      # ⚔️ سیستم فایت روی نقشه
     app.router.add_get("/health", lambda r: web.Response(text="ok"))
     return app
 
