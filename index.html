@@ -205,6 +205,10 @@ nav button.on{color:#fff;background:linear-gradient(180deg,rgba(224,42,42,.22),r
 #toast.good{border-color:rgba(47,210,122,.6);box-shadow:0 0 24px rgba(47,210,122,.18)}
 #toast.bad{border-color:rgba(224,42,42,.6)}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+#fx2{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.ctl button.on{border-color:rgba(255,205,60,.75);box-shadow:0 0 16px rgba(255,205,60,.35)}
+#sheet input.q{width:100%;padding:12px 14px;margin:10px 0;border-radius:13px;border:1px solid var(--line2);background:var(--card);color:var(--txt);font:inherit;font-size:14px;outline:none}
+#sheet .ql{max-height:46vh;overflow-y:auto}
 </style>
 </head>
 <body>
@@ -227,6 +231,7 @@ nav button.on{color:#fff;background:linear-gradient(180deg,rgba(224,42,42,.22),r
     <section class="tab on" id="t-map">
       <canvas id="stars"></canvas>
       <canvas id="cv"></canvas>
+      <canvas id="fx2"></canvas>
       <div id="lbl"></div>
       <div class="loading" id="mapLoad"><div><b></b>نقشه‌ی جهان در حال ساخته شدنه…</div></div>
       <div class="ticker" id="ticker"><div class="dot"></div><span id="tickTx">منتظر خبر تازه از جبهه‌ها…</span></div>
@@ -235,6 +240,10 @@ nav button.on{color:#fff;background:linear-gradient(180deg,rgba(224,42,42,.22),r
         <button id="zIn" aria-label="بزرگ‌نمایی">+</button>
         <button id="zOut" aria-label="کوچک‌نمایی">−</button>
         <button id="zMe" aria-label="کشور من">◎</button>
+        <button id="bSearch" aria-label="جستجوی کشور">🔍</button>
+        <button id="bTour" aria-label="تور سینمایی">🎬</button>
+        <button id="bNight" aria-label="شب و روز" class="on">🌗</button>
+        <button id="bTilt" aria-label="نمای سه‌بعدی" class="on">⛰</button>
       </div>
       <div class="chips" id="chips"></div>
     </section>
@@ -318,6 +327,12 @@ function vecOf(lon,lat){const c=Math.cos(lat);return[c*Math.sin(lon),Math.sin(la
 
 /* ---- شیدرها ---- */
 const VS=`attribute vec3 aP;uniform mat4 uVP;uniform float uR;varying vec3 vP;void main(){vP=aP;gl_Position=uVP*vec4(aP*uR,1.0);}`;
+const VS_G=`attribute vec3 aP;uniform mat4 uVP;uniform float uR,uAmp;uniform sampler2D tSm;varying vec3 vP;
+void main(){vP=aP;float lo=atan(aP.x,aP.z);float la=asin(clamp(aP.y,-1.0,1.0));
+vec4 s=texture2D(tSm,vec2(lo/6.2831853+0.5,0.5-la/3.1415927));
+float h=smoothstep(0.40,0.62,s.r)*(0.06+0.94*s.g);
+gl_Position=uVP*vec4(aP*(uR+uAmp*h),1.0);}`;
+const AMP=0.03;
 const FS_ATM=`precision mediump float;varying vec3 vP;uniform vec3 uCam;uniform highp float uR;uniform float uFade;
 void main(){vec3 N=normalize(vP);vec3 V=normalize(uCam-N*uR);float i=pow(max(dot(N,V),0.0),2.6);
 gl_FragColor=vec4(vec3(0.22,0.52,1.0)*i*0.9*uFade,i*0.7*uFade);}`;
@@ -334,7 +349,8 @@ varying vec3 vP;
 uniform sampler2D tCell,tSm,tFx,tPal,tNo;
 uniform vec2 uGrid,uWorld,uSmPx;
 uniform vec3 uLight,uCam;
-uniform float uTime,uPxAng,uSel,uCrown,uMe,uPalW;
+uniform float uTime,uPxAng,uSel,uCrown,uMe,uPalW,uNight;
+uniform vec3 uSun;
 const float PI=3.14159265;const float SQ3=1.7320508;
 float vn(vec2 p){vec2 i=floor(p);vec2 f=fract(p);f=f*f*(3.0-2.0*f);return texture2D(tNo,(i+f+0.5)/256.0).r;}
 vec2 hexAt(vec2 w){
@@ -403,9 +419,22 @@ void main(){
   float eL=texture2D(tSm,uv-ox).g;float eR=texture2D(tSm,uv+ox).g;
   float eU=texture2D(tSm,uv-oy).g;float eD=texture2D(tSm,uv+oy).g;
   float ee=clamp(sm.g+(n1-0.5)*0.20+(n2-0.5)*0.10+(n3-0.5)*0.08*detail,0.0,1.0);
-  vec3 sl=normalize(vec3(-(eR-eL)*7.0,-(eD-eU)*7.0,1.0));
-  float shade=clamp(dot(sl,normalize(vec3(-0.55,-0.6,0.62)))/0.64,0.55,1.5);
-  vec3 lc=terrain(ee)*(0.70+0.30*shade)*(0.94+0.12*n2);
+  float mtn=smoothstep(0.08,0.55,ee);
+  float d1=vn(w*2.3);vec2 g1=vec2(vn(w*2.3+vec2(0.3,0.0))-d1,vn(w*2.3+vec2(0.0,0.3))-d1);
+  float d2=vn(w*0.55+9.1);vec2 g2=vec2(vn(w*0.55+vec2(9.4,9.1))-d2,vn(w*0.55+vec2(9.1,9.4))-d2);
+  vec2 gr=vec2(eR-eL,eD-eU)*13.0+g2*(0.9+2.4*mtn)+g1*(0.5+1.6*mtn)*detail;
+  vec3 sl=normalize(vec3(-gr.x,-gr.y,1.0));
+  float steep=clamp((1.0-sl.z)*5.0,0.0,1.0);
+  float shade=clamp(dot(sl,normalize(vec3(-0.55,-0.6,0.62)))/0.64,0.38,1.65);
+  float moist=clamp(n1*1.25+(n2-0.5)*0.8-ee*0.35,0.0,1.0);
+  vec3 forest=mix(vec3(0.30,0.46,0.16),vec3(0.09,0.26,0.11),smoothstep(0.35,0.80,moist));
+  vec3 base=mix(vec3(0.66,0.57,0.35),forest,smoothstep(0.20,0.52,moist));
+  vec3 rock=mix(vec3(0.40,0.35,0.31),vec3(0.58,0.52,0.46),n3);
+  vec3 tc=mix(base,rock,smoothstep(0.34,0.62,ee+steep*0.9));
+  tc=mix(tc,vec3(0.94,0.96,1.0),smoothstep(0.76,0.90,ee+(n2-0.5)*0.12-steep*0.5));
+  tc=mix(tc,vec3(0.80,0.74,0.52),(1.0-smoothstep(0.47,0.57,cv))*0.55);
+  float ao=mix(0.78,1.0,smoothstep(0.02,0.40,ee))*(1.0-0.22*steep);
+  vec3 lc=tc*(0.58+0.42*shade)*ao*(0.94+0.12*n2);
 
   /* سرزمین کشورها */
   float e_px=1000.0;float diff=0.0;vec3 pc=vec3(1.0);float isSel=0.0;float isCrown=0.0;float isMe=0.0;
@@ -419,7 +448,7 @@ void main(){
     if(o>-0.5){
       pc=texture2D(tPal,vec2((o+0.5)/uPalW,0.5)).rgb;
       isSel=1.0-step(0.5,abs(o-uSel));isCrown=1.0-step(0.5,abs(o-uCrown));isMe=1.0-step(0.5,abs(o-uMe));
-      lc=mix(lc,pc*(0.80+0.30*shade),0.58+0.14*isSel);
+      lc=mix(lc,lc*0.55+pc*(0.50+0.50*shade)*0.62,0.46+0.14*isSel);
       if(nd.a>0.5&&abs(no-o)>0.5)diff=1.0;
     }
   }
@@ -460,8 +489,15 @@ void main(){
   vec3 V=normalize(uCam-vP);
   float ndl=dot(N,uLight);
   float lit=0.60+0.52*smoothstep(-0.35,0.85,ndl);
+  float sd=dot(N,uSun);float dayF=smoothstep(-0.10,0.30,sd);
+  lit=mix(lit,0.30+0.82*dayF,uNight);
   col*=lit;
-  float spec=pow(max(dot(N,normalize(uLight+V)),0.0),70.0)*(1.0-land)*0.55*(0.5+vn(w*1.6+uTime*0.3));
+  /* شب: سرزمین کشورها مثل چراغ‌های شهر می‌درخشه + غروب نارنجی روی مرز شب‌وروز */
+  float owned=step(-0.5,o)*cLand*land;
+  col+=(pc*(0.35+0.65*n3)*owned+lineC*glow*0.7)*(1.0-dayF)*uNight;
+  col+=vec3(1.0,0.48,0.16)*exp(-sd*sd/0.010)*0.16*uNight;
+  vec3 Ls=normalize(mix(uLight,uSun,uNight));
+  float spec=pow(max(dot(N,normalize(Ls+V)),0.0),70.0)*(1.0-land)*0.55*(0.5+vn(w*1.6+uTime*0.3))*mix(1.0,dayF,uNight);
   col+=vec3(0.70,0.86,1.0)*spec;
   /* ابرها (با زوم محو میشن) */
   float cf=1.0-smoothstep(5.0,12.0,hexPx);
@@ -489,10 +525,10 @@ function glInit(){
   if(!gl)return false;
   M.gl=gl;M.deriv=!!gl.getExtension('OES_standard_derivatives');
   try{
-    M.pg=glProg(gl,VS,(M.deriv?'#define DERIV\n':'')+FS_GLOBE);M.pa=glProg(gl,VS,FS_ATM);
+    const FSG=(M.deriv?'#define DERIV\n':'')+FS_GLOBE;M.vtf=gl.getParameter(gl.MAX_VERTEX_TEXTURE_IMAGE_UNITS)>0;try{M.pg=glProg(gl,M.vtf?VS_G:VS,FSG)}catch(e2){M.vtf=false;M.pg=glProg(gl,VS,FSG)}M.pa=glProg(gl,VS,FS_ATM);
   }catch(e){console.error(e);M.gl=null;return false}
   /* کره: شبکه‌ی عرض/طول */
-  const LA=64,LO=128,pos=new Float32Array((LA+1)*(LO+1)*3),idx=[];
+  const LA=180,LO=360,pos=new Float32Array((LA+1)*(LO+1)*3),idx=[];
   for(let i=0;i<=LA;i++){const la=PI/2-i/LA*PI;for(let j=0;j<=LO;j++){const lo=(j/LO-.5)*TAU,k=(i*(LO+1)+j)*3,c=Math.cos(la);pos[k]=c*Math.sin(lo);pos[k+1]=Math.sin(la);pos[k+2]=c*Math.cos(lo)}}
   for(let i=0;i<LA;i++)for(let j=0;j<LO;j++){const a=i*(LO+1)+j,b=a+LO+1;idx.push(a,b,a+1,a+1,b,b+1)}
   M.vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,M.vb);gl.bufferData(gl.ARRAY_BUFFER,pos,gl.STATIC_DRAW);
@@ -579,7 +615,7 @@ function resize(){
   M.dFit=Math.sqrt(1+Math.pow(1/(.84*tm),2));M.dMax=M.dFit*1.15;
   M.dMin=S.geo?1+(7*TAU/(S.geo.W+.5))/(2*tm):1.5;
   M.d=clampv(M.d,M.dMin,M.dMax);M.dT=clampv(M.dT,M.dMin,M.dMax);
-  drawStars();M.dirty=true;
+  fxSize();drawStars();M.dirty=true;
 }
 function fit(){
   /* وسط خشکی‌ها */
@@ -588,9 +624,11 @@ function fit(){
   M.lon=Math.atan2(sx,sz);M.lat=clampv(Math.asin(sy/Math.hypot(sx,sy,sz)||0),-.5,.5);M.d=M.dT=M.dFit;M.dirty=true;
 }
 function camera(){
-  const cl=Math.cos(M.lat),e=[M.d*cl*Math.sin(M.lon),M.d*Math.sin(M.lat),M.d*cl*Math.cos(M.lon)];
-  const L=m4look(e,[0,0,0],[0,1,0]);
-  const near=Math.max(.02,(M.d-1)*.45),far=M.d+1.5,P=m4persp(FOV,M.w/M.h,near,far);
+  const cl=Math.cos(M.lat),T=[cl*Math.sin(M.lon),Math.sin(M.lat),cl*Math.cos(M.lon)],dist=M.d-1,tl=M.tilt||0,ct=Math.cos(tl),st=Math.sin(tl);
+  const eh=Math.hypot(T[2],T[0])||1,E0=T[2]/eh,E2=-T[0]/eh,Nn=[T[1]*E2,T[2]*E0-T[0]*E2,-T[1]*E0];
+  const e=[T[0]+dist*(ct*T[0]-st*Nn[0]),T[1]+dist*(ct*T[1]-st*Nn[1]),T[2]+dist*(ct*T[2]-st*Nn[2])];
+  const L=m4look(e,T,[0,1,0]);
+  const near=Math.max(.008,dist*.42*ct-.03),far=Math.hypot(e[0],e[1],e[2])+1.2,P=m4persp(FOV,M.w/M.h,near,far);
   if(M.shift){for(let i=0;i<4;i++)P[i*4+1]+=M.shift*P[i*4+3]}
   M.eye=e;M.bx=L.x;M.by=L.y;M.bz=L.z;M.VP=m4mul(P,L.m);
 }
@@ -679,7 +717,7 @@ function drawGL(ts){
   gl.uniform2f(u.uGrid,g.W,g.H);gl.uniform2f(u.uWorld,worldW(),worldH());gl.uniform2f(u.uSmPx,1/M.sm.w,1/M.sm.h);
   gl.uniform3f(u.uLight,lx/ll,ly/ll,lz/ll);gl.uniform3f(u.uCam,e[0],e[1],e[2]);
   gl.uniform1f(u.uTime,M.reduce?0:ts/1000);gl.uniform1f(u.uPxAng,angPerPx());
-  gl.uniform1f(u.uSel,S.sel);gl.uniform1f(u.uCrown,S.map.crown.i);gl.uniform1f(u.uMe,S.me&&S.me.reg?S.me.idx:-1);gl.uniform1f(u.uPalW,M.palW);
+  gl.uniform1f(u.uSel,S.sel);gl.uniform1f(u.uCrown,S.map.crown.i);gl.uniform1f(u.uMe,S.me&&S.me.reg?S.me.idx:-1);gl.uniform1f(u.uPalW,M.palW);gl.uniform1f(u.uNight,S.night?1:0);gl.uniform1f(u.uAmp,M.vtf?AMP:0);{const sn=sunVec();gl.uniform3f(u.uSun,sn[0],sn[1],sn[2])}
   gl.drawElements(gl.TRIANGLES,M.nIdx,gl.UNSIGNED_SHORT,0);
 }
 function stepFlash(){
@@ -704,6 +742,8 @@ function loop(ts){
   }
   if(M.d!==wasD)busy=true;
   const sT=M.sheet?.30:0;if(Math.abs(sT-M.shift)>.0008){M.shift+=(sT-M.shift)*(1-Math.exp(-dt*9));busy=true}else M.shift=sT;
+  {const dn=(M.d-1)/Math.max(.1,M.dFit-1),q=clampv((dn-.5)/(.18-.5),0,1),tT=S.tilt?.95*q*q*(3-2*q):0;
+   if(Math.abs(tT-(M.tilt||0))>.002){M.tilt=(M.tilt||0)+(tT-(M.tilt||0))*(1-Math.exp(-dt*4));busy=true}}
   M.idle+=dt;
   if(!M.reduce&&!busy&&M.idle>8&&M.d>M.dFit*.7&&!M.sheet){M.lon+=dt*.05}
   if(M.lon>PI)M.lon-=TAU;if(M.lon<-PI)M.lon+=TAU;
@@ -713,8 +753,81 @@ function loop(ts){
   /* رزولوشن تطبیقی: اگه گوشی کند بود، کمی پایین میاد */
   if(lastDraw){const ft=ts-lastDraw;if(busy){M.fAvg=M.fAvg*.9+Math.min(ft,80)*.1;
     if(M.fAvg>26&&M.scale>.62&&ts-M.lastRes>1200){M.scale*=.85;M.lastRes=ts;M.fAvg=16;resize()}}}
-  lastDraw=ts;M.dirty=false;drawGL(ts);placeLabels();
+  lastDraw=ts;M.dirty=false;drawGL(ts);placeLabels();drawFx(ts);
 }
+
+/* ================= افکت‌های زنده: شب‌وروز، پرتاب‌های جنگی، فانوس‌ها، تور، جستجو ================= */
+function sunVec(){const d=new Date(),h=d.getUTCHours()+d.getUTCMinutes()/60+d.getUTCSeconds()/3600,
+  doy=(Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate())-Date.UTC(d.getUTCFullYear(),0,0))/864e5;
+  return vecOf(-(h-12)/24*TAU,23.44*PI/180*Math.sin(TAU*(doy-81)/365))}
+S.night=(()=>{try{return localStorage.getItem('ezn')!=='0'}catch(e){return true}})();
+$('#bNight').classList.toggle('on',S.night);
+var FX={cv:$('#fx2'),arcs:[],rings:[],d:1};
+function fxSize(){if(!FX||!FX.cv)return;FX.d=Math.min(2,window.devicePixelRatio||1);FX.cv.width=Math.round(M.w*FX.d);FX.cv.height=Math.round(M.h*FX.d)}
+function scr(p,r){const V=M.VP,x=p[0]*r,y=p[1]*r,z=p[2]*r,cw=V[3]*x+V[7]*y+V[11]*z+V[15];if(cw<=0)return null;
+  return[((V[0]*x+V[4]*y+V[8]*z+V[12])/cw*.5+.5)*M.w,(1-((V[1]*x+V[5]*y+V[9]*z+V[13])/cw*.5+.5))*M.h]}
+const vis=p=>M.eye[0]*p[0]+M.eye[1]*p[1]+M.eye[2]*p[2]>1.0;
+function arcAt(a,b,t,om,h){const s=Math.sin(om),k1=Math.sin((1-t)*om)/s,k2=Math.sin(t*om)/s;
+  return{p:[a[0]*k1+b[0]*k2,a[1]*k1+b[1]*k2,a[2]*k1+b[2]*k2],r:1+h*Math.sin(PI*t)}}
+function drawFx(ts){
+  const x=FX.cv.getContext('2d');if(!x)return;x.setTransform(FX.d,0,0,FX.d,0,0);x.clearRect(0,0,M.w,M.h);
+  if(!S.map||!M.VP||S.tab!=='map')return;const now=performance.now(),cs=S.map.cs;x.lineCap='round';x.globalCompositeOperation='lighter';
+  const cr=S.map.crown.i,me=S.me&&S.me.reg?S.me.idx:-1,bh=Math.min(.32,.05+.1*(M.d-1)),pl=.75+.25*Math.sin(ts/280);
+  const beam=(k,h,col,w)=>{const c=M.cap[k];if(!c||!vis(c.p))return;const a=scr(c.p,1),b=scr(c.p,1+h);if(!a||!b)return;
+    const g=x.createLinearGradient(a[0],a[1],b[0],b[1]);g.addColorStop(0,col+'.95)');g.addColorStop(1,col+'0)');
+    x.strokeStyle=g;x.lineWidth=w*pl;x.beginPath();x.moveTo(a[0],a[1]);x.lineTo(b[0],b[1]);x.stroke();
+    x.fillStyle=col+'.9)';x.beginPath();x.arc(a[0],a[1],w*.9*pl,0,7);x.fill()};
+  if(cr>=0)beam(cr,bh,'rgba(255,205,60,',3.2);
+  if(me>=0&&me!==cr)beam(me,bh*.7,'rgba(255,74,74,',2.4);
+  FX.rings=FX.rings.filter(r=>now-r.t0<2400);
+  for(const r of FX.rings){const c=M.cap[r.k];if(!c||!vis(c.p))continue;const q=scr(c.p,1);if(!q)continue;const u=(now-r.t0)/2400;
+    const col=cs[r.k]?cs[r.k].c:[255,255,255];for(let j=0;j<2;j++){const v=Math.max(0,u-j*.22);if(v<=0||v>=1)continue;
+      x.strokeStyle=`rgba(${col[0]},${col[1]},${col[2]},${(1-v)*.9})`;x.lineWidth=2.4;x.beginPath();x.arc(q[0],q[1],6+v*64,0,7);x.stroke()}}
+  FX.arcs=FX.arcs.filter(a=>now-a.t0<4600);
+  for(const A of FX.arcs){const ca=M.cap[A.a],cb=M.cap[A.b];if(!ca||!cb)continue;const u=(now-A.t0)/4600,om=Math.acos(clampv(ca.p[0]*cb.p[0]+ca.p[1]*cb.p[1]+ca.p[2]*cb.p[2],-1,1));
+    if(om<.01)continue;const hd=Math.min(1,u*1.7),tl=Math.max(0,hd-.4),al=u<.6?1:Math.max(0,1-(u-.6)/.4),col=cs[A.a]?cs[A.a].c:[255,120,80],h=.06+om*.22;
+    if(hd>=1&&!A.hit){A.hit=1;FX.rings.push({k:A.b,t0:now});hap('medium')}
+    let prev=null;const N=34;
+    for(let i=0;i<=N;i++){const t=tl+(hd-tl)*i/N,e=arcAt(ca.p,cb.p,t,om,h);if(!vis(e.p)){prev=null;continue}const q=scr(e.p,e.r);if(!q){prev=null;continue}
+      if(prev){x.strokeStyle=`rgba(${Math.min(255,col[0]+70)},${Math.min(255,col[1]+70)},${Math.min(255,col[2]+70)},${(i/N)*al})`;x.lineWidth=.8+3.2*i/N;x.beginPath();x.moveTo(prev[0],prev[1]);x.lineTo(q[0],q[1]);x.stroke()}
+      prev=q}
+    if(prev&&hd<1){x.fillStyle=`rgba(255,240,210,${al})`;x.beginPath();x.arc(prev[0],prev[1],4.2,0,7);x.fill()}}
+  x.globalCompositeOperation='source-over';
+}
+function fxNews(t){
+  if(!S.map||!M.cap.length)return;const hits=[];S.map.cs.forEach((c,k)=>{if(M.cap[k]&&c.n.length>1){const i=t.indexOf(c.n);if(i>=0)hits.push([i,k])}});
+  hits.sort((a,b)=>a[0]-b[0]);const now=performance.now();
+  if(hits.length>=2)FX.arcs.push({a:hits[0][1],b:hits[1][1],t0:now,hit:0});else if(hits.length===1)FX.rings.push({k:hits[0][1],t0:now});
+  if(hits.length&&M.idle>6&&!M.sheet&&S.tab==='map'&&!TOUR.on){
+    let v=[0,0,0];hits.slice(0,2).forEach(h=>{const p=M.cap[h[1]].p;v=[v[0]+p[0],v[1]+p[1],v[2]+p[2]]});const l=Math.hypot(...v)||1;
+    flyTo(Math.atan2(v[0],v[2]),Math.asin(clampv(v[1]/l,-1,1)),Math.min(M.d,dFocus(55)),2000);M.idle=0}
+}
+/* 🎬 تور سینمایی: امپراتور، قوی‌ترین‌ها، بعد کشور خودت */
+const TOUR={on:false,i:0,t:null};
+function tourStop(){TOUR.on=false;clearTimeout(TOUR.t);$('#bTour').classList.remove('on')}
+function tourStep(){
+  if(!TOUR.on||!S.map)return;const cs=S.map.cs,seq=[],me=S.me&&S.me.reg?S.me.idx:-1;
+  if(S.map.crown.i>=0)seq.push(S.map.crown.i);
+  cs.map((c,k)=>k).sort((a,b)=>cs[b].s-cs[a].s).slice(0,6).forEach(k=>{if(!seq.includes(k))seq.push(k)});
+  if(me>=0&&!seq.includes(me))seq.push(me);const q=seq.filter(k=>M.cap[k]);if(!q.length)return tourStop();
+  const k=q[TOUR.i++%q.length],c=cs[k],p=M.cap[k];M.idle=0;flyTo(p.lon,p.lat,dFocus(20),2800);
+  toast(`🎬 ${c.e} ${c.n}${k===S.map.crown.i?' 👑':''}${k===me?' · تو':''}`);TOUR.t=setTimeout(tourStep,6800);
+}
+$('#bTour').onclick=()=>{if(TOUR.on){tourStop();return}if(!S.map)return;TOUR.on=true;TOUR.i=0;$('#bTour').classList.add('on');closeSheet();hap('medium');tourStep()};
+M.cv.addEventListener('pointerdown',()=>{if(TOUR.on)tourStop()});
+/* 🔍 جستجوی کشور */
+function searchSheet(){
+  if(!S.map)return;const cs=S.map.cs,ord=cs.map((c,k)=>k).sort((a,b)=>cs[b].s-cs[a].s);
+  openSheet(`<h3>🔍 پیدا کردن کشور</h3><input class="q" id="qs" placeholder="اسم کشور…" autocomplete="off"><div class="ql" id="ql"></div>`);
+  const draw=()=>{const f=($('#qs').value||'').trim(),l=ord.filter(k=>!f||cs[k].n.includes(f)).slice(0,40);
+    $('#ql').innerHTML=l.map(k=>{const c=cs[k];return `<div class="row" data-k="${k}"><span class="cdot" style="background:rgb(${c.c.join(',')})"></span><span style="font-size:20px">${esc(c.e)}</span><div class="nm"><b>${esc(c.n)}</b><small>${fa(c.l)} استان${S.map.crown.i===k?' · 👑':''}</small></div><div class="v">${fa(c.s)}<small>قدرت</small></div></div>`}).join('')||'<div class="empty">کشوری پیدا نشد</div>';
+    $$('#ql [data-k]').forEach(r=>r.onclick=()=>{const k=+r.dataset.k;focusCountry(k);countrySheet(k)})};
+  $('#qs').oninput=draw;draw();
+}
+$('#bSearch').onclick=searchSheet;
+S.tilt=(()=>{try{return localStorage.getItem('ezt')!=='0'}catch(e){return true}})();$('#bTilt').classList.toggle('on',S.tilt);
+$('#bTilt').onclick=()=>{S.tilt=!S.tilt;try{localStorage.setItem('ezt',S.tilt?'1':'0')}catch(e){}$('#bTilt').classList.toggle('on',S.tilt);M.dirty=true;hap();toast(S.tilt?'⛰ نمای سه‌بعدی: با زوم، دوربین کج میشه':'🗺 نمای از بالا')};
+$('#bNight').onclick=()=>{S.night=!S.night;try{localStorage.setItem('ezn',S.night?'1':'0')}catch(e){}$('#bNight').classList.toggle('on',S.night);M.dirty=true;hap();toast(S.night?'🌗 شب و روز زنده: خاک کشورها شب‌ها می‌درخشه':'☀️ نور ثابت')};
 
 /* ---- لمس و ماوس ---- */
 const pts=M.ptr;let tapInfo=null,pinch=null,lastTap=null;
@@ -829,7 +942,7 @@ function connect(){
   es.addEventListener('hello',e=>{const d=JSON.parse(e.data);S.online=d.online;S.news=d.news||[];setLive(true);if(S.news.length)showTick(S.news[S.news.length-1].x)});
   es.addEventListener('map',()=>loadMap());
   es.addEventListener('stats',()=>loadMap());
-  es.addEventListener('news',e=>{const n=JSON.parse(e.data);S.news.push(n);S.news=S.news.slice(-30);showTick(n.x)});
+  es.addEventListener('news',e=>{const n=JSON.parse(e.data);S.news.push(n);S.news=S.news.slice(-30);showTick(n.x);fxNews(n.x)});
   es.addEventListener('online',e=>{S.online=JSON.parse(e.data).n;setLive(true)});
   es.onerror=()=>setLive(false);
 }
