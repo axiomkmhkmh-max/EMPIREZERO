@@ -348,13 +348,24 @@ precision mediump float;
 varying vec3 vP;
 uniform sampler2D tCell,tSm,tFx,tPal,tNo;
 uniform vec2 uGrid,uWorld,uSmPx;
-uniform vec3 uLight,uCam;
+uniform vec3 uLight,uCam,uMeP;
 uniform float uTime,uPxAng,uSel,uCrown,uMe,uPalW,uNight;
 uniform vec3 uSun;
 const float PI=3.14159265;const float SQ3=1.7320508;
+/* نویز قدیمی (فقط برای تاب شش‌ضلعی‌ها؛ با JS هماهنگه) */
 float vn(vec2 p){vec2 i=floor(p);vec2 f=fract(p);f=f*f*(3.0-2.0*f);return texture2D(tNo,(i+f+0.5)/256.0).r;}
-float hdet(vec2 p){float a=0.5;float s=0.0;for(int i=0;i<4;i++){float n=vn(p);s+=a*(1.0-abs(2.0*n-1.0));p=p*2.1+vec2(3.1,7.7);a*=0.5;}return s;}
-float cld(vec2 w){return smoothstep(0.66,0.92,vn(w*0.045+vec2(uTime*0.012,0.0))*0.6+vn(w*0.11-vec2(uTime*0.02,uTime*0.006)+11.0)*0.3+vn(w*0.26+5.0)*0.1);}
+/* نویز سه‌بعدی صاف روی کره: بدون درز، بدون بلوکی‌شدن */
+float h31(vec3 p){p=fract(p*0.1031);p+=dot(p,p.yzx+33.33);return fract((p.x+p.y)*p.z);}
+float n3(vec3 x){vec3 i=floor(x);vec3 f=fract(x);f=f*f*f*(f*(f*6.0-15.0)+10.0);
+  return mix(mix(mix(h31(i),h31(i+vec3(1.0,0.0,0.0)),f.x),mix(h31(i+vec3(0.0,1.0,0.0)),h31(i+vec3(1.0,1.0,0.0)),f.x),f.y),
+              mix(mix(h31(i+vec3(0.0,0.0,1.0)),h31(i+vec3(1.0,0.0,1.0)),f.x),mix(h31(i+vec3(0.0,1.0,1.0)),h31(i+vec3(1.0,1.0,1.0)),f.x),f.y),f.z);}
+const mat3 RM=mat3(0.00,0.80,0.60,-0.80,0.36,-0.48,-0.60,-0.48,0.64);
+float fbm(vec3 p,float fd){float a=0.5;float s=0.0;float t=0.0;
+  for(int i=0;i<5;i++){float w=clamp(1.25-fd,0.0,1.0);s+=a*w*n3(p);t+=a*w;p=RM*p*2.03;a*=0.5;fd*=2.03;}
+  return s/max(t,0.001);}
+float rdg(vec3 p,float fd){float a=0.55;float s=0.0;float t=0.0;
+  for(int i=0;i<4;i++){float w=clamp(1.25-fd,0.0,1.0);float r=1.0-abs(2.0*n3(p)-1.0);s+=a*w*r*r;t+=a*w;p=RM*p*2.1;a*=0.5;fd*=2.1;}
+  return s/max(t,0.001);}
 vec2 hexAt(vec2 w){
   vec2 p=vec2(w.x-SQ3*0.5,w.y-1.0);
   float x=SQ3/3.0*p.x-p.y/3.0;float z=2.0/3.0*p.y;float y=-x-z;
@@ -379,18 +390,19 @@ vec4 cellTex(vec2 h){
   return texture2D(tCell,(h+0.5)/uGrid);
 }
 float ownerOf(vec4 c){return floor(c.r*255.0+0.5)+floor(c.g*255.0+0.5)*256.0-1.0;}
-vec3 terrain(float e){
-  vec3 c=mix(vec3(0.13,0.31,0.18),vec3(0.33,0.48,0.22),smoothstep(0.04,0.30,e));
-  c=mix(c,vec3(0.58,0.53,0.32),smoothstep(0.30,0.52,e));
-  c=mix(c,vec3(0.44,0.38,0.33),smoothstep(0.50,0.72,e));
-  c=mix(c,vec3(0.90,0.92,0.96),smoothstep(0.86,1.0,e));
-  return c;
+vec3 rotY(vec3 v,float a){float c=cos(a);float s=sin(a);return vec3(v.x*c-v.z*s,v.y,v.x*s+v.z*c);}
+float cloudAt(vec3 N,float ws,float fd){
+  vec3 q=rotY(N,uTime*0.004)*ws*2.4;
+  float base=fbm(q,fd*ws*2.4);
+  float wisp=fbm(q*2.6+vec3(4.0,1.0,7.0)+vec3(uTime*0.01,0.0,0.0),fd*ws*6.2);
+  return smoothstep(0.50,0.80,base*0.78+wisp*0.30);
 }
 void main(){
   vec3 N=normalize(vP);
   float lon=atan(N.x,N.z);float lat=asin(clamp(N.y,-1.0,1.0));
   vec2 uv=vec2(lon/(2.0*PI)+0.5,0.5-lat/PI);
   vec2 w=uv*uWorld;
+  float ws=uWorld.x*0.0096;
 #ifdef DERIV
   float ds=max(length(dFdx(N)),length(dFdy(N)));
 #else
@@ -399,11 +411,15 @@ void main(){
   float pw=max(ds*uWorld.y/PI,0.0001);
   float hexPx=1.0/pw;
   float detail=smoothstep(4.0,22.0,hexPx);
-  float n1=vn(w*0.09);float n2=vn(w*0.27+7.3);float n3=vn(w*0.8+3.7);
+  float near=smoothstep(8.0,46.0,hexPx);
+  float latn=abs(lat)/(PI*0.5);
 
-  /* ساحل نرم */
+  /* ساحل طبیعی و پرپیچ‌وخم */
   vec4 sm=texture2D(tSm,uv);
-  float cv=sm.r+(n1-0.5)*0.20+(n2-0.5)*0.09+(n3-0.5)*0.05*detail;
+  float nA=fbm(N*ws*1.6,ds*ws*1.6);
+  float nB=fbm(N*ws*5.5+vec3(3.7,1.2,8.1),ds*ws*5.5);
+  float nC=fbm(N*ws*17.0+vec3(9.1,4.4,2.3),ds*ws*17.0);
+  float cv=sm.r+(nA-0.5)*0.34+(nB-0.5)*0.17+(nC-0.5)*0.10*detail;
 #ifdef DERIV
   float aa=fwidth(cv)*0.8+0.004;
 #else
@@ -411,52 +427,67 @@ void main(){
 #endif
   float land=smoothstep(0.46-aa,0.46+aa,cv);
 
-  /* خونه */
+  /* خونه‌ها (همون منطق قبلی) */
   vec2 wq=w+(vec2(vn(w*0.55),vn(w*0.55+5.2))-0.5)*1.1+(vec2(vn(w*1.9),vn(w*1.9+3.3))-0.5)*0.35*detail;
   vec2 h=hexAt(wq);vec2 dl=wq-hexCenter(h);
   vec4 cd=cellTex(h);
   float o=ownerOf(cd);float cLand=step(0.5,cd.a);
 
-  /* زمین */
+  /* ===== زمین ===== */
   vec2 ox=vec2(uSmPx.x*1.6,0.0);vec2 oy=vec2(0.0,uSmPx.y*1.6);
   float eL=texture2D(tSm,uv-ox).g;float eR=texture2D(tSm,uv+ox).g;
   float eU=texture2D(tSm,uv-oy).g;float eD=texture2D(tSm,uv+oy).g;
-  float ee=clamp(sm.g+(n1-0.5)*0.20+(n2-0.5)*0.10+(n3-0.5)*0.08*detail,0.0,1.0);
-  float mtn=smoothstep(0.08,0.55,ee);
-  float latn=abs(lat)/(PI*0.5);
-  vec2 gr=vec2(eR-eL,eD-eU)*13.0;
-  float hdv=0.0;
-  if(detail>0.02&&land>0.02){
-    vec2 q=w*1.4;float h0=hdet(q);
-    gr+=vec2(hdet(q+vec2(0.12,0.0))-h0,hdet(q+vec2(0.0,0.12))-h0)*(10.0+22.0*mtn)*detail;
-    hdv=h0;
-  }
-  float g20=vn(w*0.55+9.1);
-  gr+=vec2(vn(w*0.55+vec2(9.4,9.1))-g20,vn(w*0.55+vec2(9.1,9.4))-g20)*(0.9+2.4*mtn);
+  float ee=clamp(sm.g+(nA-0.5)*0.30+(nB-0.5)*0.18+(nC-0.5)*0.10*detail,0.0,1.0);
+  float mtn=smoothstep(0.10,0.60,ee);
   vec3 Eh=normalize(cross(vec3(0.0,1.0,0.0),N)+vec3(0.0001,0.0,0.0));vec3 Nh=cross(N,Eh);
   vec3 Ls0=normalize(mix(uLight,uSun,uNight));
-  vec3 Np=normalize(N-gr.x*Eh+gr.y*Nh);
-  float steep=clamp((1.0-dot(Np,N))*3.2*3.0,0.0,1.0);
-  float shade=clamp(1.0+2.2*(dot(Np,Ls0)-dot(N,Ls0)),0.34,1.7);
-  float dz0=(latn-0.30)/0.13;float dryB=exp(-dz0*dz0);
-  float moist=clamp(n1*1.25+(n2-0.5)*0.8-ee*0.35-0.5*dryB*(0.55+0.45*n3)+0.28*(1.0-smoothstep(0.0,0.3,latn)),0.0,1.0);
-  vec3 forest=mix(vec3(0.30,0.46,0.16),vec3(0.07,0.24,0.10),smoothstep(0.35,0.80,moist));
-  forest=mix(forest,vec3(0.10,0.30,0.16),smoothstep(0.45,0.80,latn)*0.7);
-  vec3 desert=mix(vec3(0.80,0.66,0.40),vec3(0.70,0.50,0.30),n2);
-  vec3 base=mix(desert,forest,smoothstep(0.18,0.50,moist));
-  base=mix(base,vec3(0.50,0.52,0.42),smoothstep(0.62,0.78,latn)*0.8);
-  vec3 rock=mix(vec3(0.40,0.35,0.31),vec3(0.58,0.52,0.46),n3);
-  vec3 tc=mix(base,rock,smoothstep(0.34,0.62,ee+steep*0.5));
-  float snowLine=0.90-0.45*latn;
-  tc=mix(tc,vec3(0.94,0.96,1.0),smoothstep(snowLine-0.08,snowLine+0.06,ee+(n2-0.5)*0.12-steep*0.4+smoothstep(0.78,0.92,latn)*0.6));
-  tc=mix(tc,vec3(0.80,0.74,0.52),(1.0-smoothstep(0.47,0.57,cv))*0.55);
-  float rvr=(1.0-smoothstep(0.0,0.02,abs(vn(w*0.26+vec2(2.2,5.5)+(n1-0.5)*0.7)-0.5)))*(1.0-smoothstep(0.12,0.50,ee))*smoothstep(4.0,16.0,hexPx)*step(0.2,moist+0.3);
-  tc=mix(tc,vec3(0.13,0.34,0.50),rvr*0.85);
-  if(detail>0.02&&land>0.02)tc*=mix(1.0,0.82+0.36*hdv,detail);
-  float ao=mix(0.78,1.0,smoothstep(0.02,0.40,ee))*(1.0-0.22*steep);
-  vec3 lc=tc*(0.52+0.48*shade)*ao*(0.94+0.12*n2);
+  vec2 gr=vec2(eR-eL,eU-eD)*13.0;   /* شیب درشت از بافت ارتفاع (شرق، شمال) */
+  float rel=0.0;float steep=0.0;
+  vec3 Np=N;
+  if(land>0.02){
+    float F0=ws*14.0;float stp=max(0.0032,ds*1.3);float fd=ds*F0;
+    vec3 P0=N*F0;
+    float hA=fbm(P0,fd)*0.55+rdg(P0*0.55+vec3(5.0,1.0,9.0),fd*0.55)*(0.25+0.9*mtn);
+    vec3 N1=normalize(N+Eh*stp);vec3 N2=normalize(N+Nh*stp);
+    float hB=fbm(N1*F0,fd)*0.55+rdg(N1*F0*0.55+vec3(5.0,1.0,9.0),fd*0.55)*(0.25+0.9*mtn);
+    float hC=fbm(N2*F0,fd)*0.55+rdg(N2*F0*0.55+vec3(5.0,1.0,9.0),fd*0.55)*(0.25+0.9*mtn);
+    gr+=vec2(hB-hA,hC-hA)/stp*(0.030+0.050*mtn)*mix(0.6,1.0,detail);
+    rel=hA;
+  }
+  Np=normalize(N-Eh*gr.x*0.42-Nh*gr.y*0.42);
+  steep=clamp((1.0-dot(Np,N))*9.0,0.0,1.0);
+  float shade=clamp(0.62+1.9*(dot(Np,Ls0)-dot(N,Ls0)*0.55),0.28,1.65);
+  /* آب‌وهوا: دما و رطوبت */
+  float dz0=(latn-0.30)/0.14;float dryB=exp(-dz0*dz0);
+  float mo=fbm(N*ws*3.0+vec3(9.0,2.0,5.0),ds*ws*3.0);
+  float moist=clamp(mo*1.55-0.15-0.55*dryB*(0.5+0.5*nB)-ee*0.30+0.30*(1.0-smoothstep(0.0,0.32,latn)),0.0,1.0);
+  float temp=clamp(1.08-latn*1.20-ee*0.55+(nA-0.5)*0.22,0.0,1.0);
+  vec3 desert=mix(vec3(0.80,0.64,0.38),vec3(0.66,0.46,0.27),nB);
+  vec3 savan=mix(vec3(0.58,0.54,0.26),vec3(0.42,0.46,0.20),nA);
+  vec3 jungle=mix(vec3(0.08,0.30,0.11),vec3(0.04,0.22,0.09),nB);
+  vec3 grass=mix(vec3(0.40,0.55,0.22),vec3(0.28,0.46,0.18),nB);
+  vec3 forest=mix(vec3(0.15,0.34,0.14),vec3(0.07,0.25,0.11),nA);
+  vec3 taiga=mix(vec3(0.11,0.26,0.19),vec3(0.20,0.33,0.22),nB);
+  vec3 tundra=mix(vec3(0.50,0.50,0.42),vec3(0.38,0.42,0.34),nB);
+  vec3 hot=mix(desert,mix(savan,jungle,smoothstep(0.55,0.88,moist)),smoothstep(0.16,0.52,moist));
+  vec3 mild=mix(mix(desert*0.95,grass,smoothstep(0.14,0.40,moist)),forest,smoothstep(0.42,0.80,moist));
+  vec3 cold=mix(tundra,taiga,smoothstep(0.28,0.70,moist));
+  vec3 bio=mix(cold,mix(mild,hot,smoothstep(0.50,0.80,temp)),smoothstep(0.20,0.46,temp));
+  /* بافت ریز: خاک و درختان */
+  float grain=fbm(N*ws*70.0,ds*ws*70.0);
+  float trees=n3(N*ws*210.0);
+  bio*=0.86+0.30*grain;
+  bio*=1.0-0.20*near*smoothstep(0.30,0.80,moist)*(0.4+0.6*trees);
+  vec3 rock=mix(vec3(0.36,0.31,0.28),vec3(0.58,0.52,0.45),nC);
+  vec3 tc=mix(bio,rock,smoothstep(0.62,1.00,ee+steep*0.40+rel*0.06));
+  float snowLine=0.98-0.52*(1.0-temp);
+  float sn=smoothstep(snowLine-0.07,snowLine+0.07,ee+(nB-0.5)*0.14-steep*0.30+smoothstep(0.74,0.94,latn)*0.65);
+  tc=mix(tc,vec3(0.93,0.96,1.0),sn);
+  tc=mix(tc,vec3(0.82,0.76,0.56),(1.0-smoothstep(0.47,0.55,cv))*0.60);   /* ساحل شنی */
+  float ao=mix(0.74,1.0,smoothstep(0.02,0.40,ee))*(1.0-0.28*steep);
+  vec3 lc=tc*(0.46+0.54*shade)*ao;
 
-  /* سرزمین کشورها */
+  /* ===== سرزمین کشورها ===== */
   float e_px=1000.0;float diff=0.0;vec3 pc=vec3(1.0);float isSel=0.0;float isCrown=0.0;float isMe=0.0;
   if(cLand>0.5){
     float ang=atan(dl.y,dl.x);
@@ -468,12 +499,11 @@ void main(){
     if(o>-0.5){
       pc=texture2D(tPal,vec2((o+0.5)/uPalW,0.5)).rgb;
       isSel=1.0-step(0.5,abs(o-uSel));isCrown=1.0-step(0.5,abs(o-uCrown));isMe=1.0-step(0.5,abs(o-uMe));
-      lc=mix(lc,lc*0.55+pc*(0.50+0.50*shade)*0.62,0.46+0.14*isSel);
+      lc=mix(lc,lc*0.70+pc*(0.40+0.60*shade)*0.46,0.24+0.16*isSel);
       if(nd.a>0.5&&abs(no-o)>0.5)diff=1.0;
     }
   }
   float sc=clamp(hexPx/11.0,0.45,1.0);
-  /* مرز */
   float dark=diff*(1.0-smoothstep(0.6*sc,1.7*sc,e_px));
   float lite=diff*smoothstep(0.7*sc,1.7*sc,e_px)*(1.0-smoothstep(2.8*sc,4.6*sc,e_px));
   float glow=diff*(1.0-smoothstep(0.0,13.0*sc,e_px));
@@ -484,56 +514,98 @@ void main(){
   lc=mix(lc,vec3(0.02,0.03,0.06),dark*0.85);
   lc=mix(lc,lineC,lite*0.95);
   lc+=lineC*glow*(0.16+0.30*isSel+0.22*isCrown*pulse+0.10*isMe);
-  /* خطوط شبکه فقط وقتی زوم‌کرده */
   float gridA=smoothstep(13.0,38.0,hexPx)*0.16*cLand;
   lc=mix(lc,vec3(0.0,0.02,0.04),gridA*(1.0-smoothstep(0.35,1.15,e_px)));
-  /* فلش تسخیر */
   float fx=texture2D(tFx,(h+0.5)/uGrid).r;
   lc=mix(lc,vec3(1.0,0.93,0.72),fx*0.9);
 
-  /* اقیانوس */
+  /* ===== اقیانوس ===== */
   float depth=sm.b;
-  vec3 oc=mix(vec3(0.012,0.095,0.235),vec3(0.03,0.26,0.47),smoothstep(0.0,0.30,depth));
-  oc=mix(oc,vec3(0.07,0.58,0.68),smoothstep(0.28,0.78,depth)*0.92);
-  oc*=0.90+0.20*vn(w*0.12+3.1);
-  float wv=vn(w*0.5+vec2(uTime*0.05,uTime*0.03))*0.5+vn(w*1.3-vec2(uTime*0.04,0.0))*0.25*detail;
-  oc*=0.88+wv*0.30;
-  float foam=smoothstep(0.26,0.43,cv)*(1.0-land);
-  oc=mix(oc,vec3(0.62,0.90,0.94),foam*0.50);
-  vec2 gd=abs(fract(vec2(lon,lat)/(PI/12.0)+0.5)-0.5)*(PI/12.0);
-  float gl=1.0-smoothstep(ds*0.4,ds*1.5,min(gd.x*max(cos(lat),0.05),gd.y));
-  oc+=vec3(0.30,0.60,1.0)*gl*0.045*(1.0-smoothstep(10.0,22.0,hexPx));
+  vec3 oc=mix(vec3(0.004,0.04,0.13),vec3(0.01,0.18,0.36),smoothstep(0.0,0.34,depth));
+  oc=mix(oc,vec3(0.04,0.50,0.60),smoothstep(0.30,0.80,depth)*0.95);
+  float shore=smoothstep(0.30,0.46,cv)*(1.0-land);
+  oc=mix(oc,vec3(0.30,0.78,0.72),shore*0.55);
+  oc*=0.88+0.26*fbm(N*ws*4.0+vec3(2.0,7.0,1.0),ds*ws*4.0);
+  float fmw=ws*48.0;float wst=max(0.0016,ds*1.2);
+  vec3 Nr=N;
+  {
+    float t=uTime*0.35;
+    vec3 q0=N*fmw+vec3(t,0.0,t*0.7);
+    float a0=n3(q0)*0.7+n3(q0*2.3+vec3(0.0,t,0.0))*0.3;
+    float a1=n3((N+Eh*wst)*fmw+vec3(t,0.0,t*0.7))*0.7+n3((N+Eh*wst)*fmw*2.3+vec3(0.0,t,0.0))*0.3;
+    float a2=n3((N+Nh*wst)*fmw+vec3(t,0.0,t*0.7))*0.7+n3((N+Nh*wst)*fmw*2.3+vec3(0.0,t,0.0))*0.3;
+    float wamp=0.0016*(1.0-0.5*smoothstep(0.003,0.02,ds));
+    Nr=normalize(N-Eh*(a1-a0)/wst*wamp-Nh*(a2-a0)/wst*wamp);
+  }
+  float foamT=sin(uTime*1.3+cv*60.0+nB*9.0)*0.5+0.5;
+  float foam=smoothstep(0.34,0.455,cv)*(1.0-land)*(0.45+0.55*foamT)*(0.35+0.65*near);
+  oc=mix(oc,vec3(0.80,0.95,0.97),foam*0.55);
+  /* یخ دریایی قطب‌ها */
+  float iceN=fbm(N*ws*6.0+vec3(1.0,3.0,5.0),ds*ws*6.0);
+  float ice=smoothstep(0.86,0.93,latn+(iceN-0.5)*0.12)*(1.0-land);
+  oc=mix(oc,vec3(0.82,0.90,0.96)*(0.85+0.15*iceN),ice);
+  vec2 gld=abs(fract(vec2(lon,lat)/(PI/12.0)+0.5)-0.5)*(PI/12.0);
+  float gl=1.0-smoothstep(ds*0.4,ds*1.5,min(gld.x*max(cos(lat),0.05),gld.y));
+  oc+=vec3(0.30,0.60,1.0)*gl*0.04*(1.0-smoothstep(10.0,22.0,hexPx));
 
-  float cfS=1.0-smoothstep(5.0,12.0,hexPx);
-  if(cfS>0.002)lc*=1.0-0.32*cld(w+vec2(1.3,0.9))*cfS;
+  float cfS=1.0-smoothstep(5.0,14.0,hexPx);
+  /* سایه‌ی ابر روی زمین و دریا */
+  if(cfS>0.002){
+    vec3 Nsh=normalize(N-Ls0*0.018+Eh*0.0);
+    float sh=cloudAt(Nsh,ws,ds);
+    lc*=1.0-0.30*sh*cfS;oc*=1.0-0.26*sh*cfS;
+  }
   vec3 col=mix(oc,lc,land);
 
-  /* نور و جو */
+  /* ===== نور، آتمسفر، شب ===== */
   vec3 V=normalize(uCam-vP);
   float ndl=dot(N,uLight);
-  float lit=0.60+0.52*smoothstep(-0.35,0.85,ndl);
-  float sd=dot(N,uSun);float dayF=smoothstep(-0.10,0.30,sd);
-  lit=mix(lit,0.30+0.82*dayF,uNight);
+  float lit=0.58+0.54*smoothstep(-0.35,0.85,ndl);
+  float sd=dot(N,uSun);float dayF=smoothstep(-0.12,0.30,sd);
+  lit=mix(lit,0.26+0.86*dayF,uNight);
   col*=lit;
-  /* شب: سرزمین کشورها مثل چراغ‌های شهر می‌درخشه + غروب نارنجی روی مرز شب‌وروز */
   float owned=step(-0.5,o)*cLand*land;
-  col+=(pc*(0.35+0.65*n3)*owned+lineC*glow*0.7)*(1.0-dayF)*uNight;
+  /* چراغ شهرها: نقطه‌های ریز + درخشش کشور */
+  float cities=smoothstep(0.80,0.96,h31(floor(N*ws*150.0)))*smoothstep(0.38,0.62,fbm(N*ws*9.0+vec3(3.0,3.0,3.0),ds*ws*9.0));
+  float night=(1.0-dayF)*uNight;
+  col+=(pc*(0.30+0.70*nC)*owned*0.75+vec3(1.0,0.78,0.40)*cities*owned*(0.4+0.8*near)+lineC*glow*0.7)*night;
   col+=vec3(1.0,0.48,0.16)*exp(-sd*sd/0.010)*0.16*uNight;
-  vec3 Ls=normalize(mix(uLight,uSun,uNight));
-  vec3 Nw=normalize(N+(Eh*(vn(w*3.1+vec2(uTime*0.25,0.0))-0.5)+Nh*(vn(w*3.1+vec2(4.0,uTime*0.21+4.0))-0.5))*0.30*(0.35+0.65*detail));
-  float spec=pow(max(dot(Nw,normalize(Ls+V)),0.0),110.0)*(1.0-land)*2.2*mix(1.0,dayF,uNight);
-  col+=vec3(0.70,0.86,1.0)*spec;
-  /* ابرها (با زوم محو میشن) */
-  float cf=1.0-smoothstep(5.0,12.0,hexPx);
-  if(cf>0.002){
-    float cl=vn(w*0.045+vec2(uTime*0.012,0.0))*0.6+vn(w*0.11-vec2(uTime*0.02,uTime*0.006)+11.0)*0.3+vn(w*0.26+5.0)*0.1;
-    float cm=smoothstep(0.66,0.92,cl)*cf*0.30;
-    col=mix(col,vec3(0.96,0.98,1.0)*(0.55+0.45*lit),cm);
+  vec3 Ls=Ls0;
+  /* انعکاس خورشید روی دریا */
+  float dayK=mix(1.0,dayF,uNight);
+  vec3 Hh=normalize(Ls+V);
+  float spec=pow(max(dot(Nr,Hh),0.0),90.0)*(1.0-land)*0.9*dayK*(1.0-ice);
+  float sheen=pow(max(dot(Nr,Hh),0.0),14.0)*(1.0-land)*0.16*dayK*(1.0-ice);
+  float fresW=pow(1.0-max(dot(Nr,V),0.0),4.0)*(1.0-land)*0.45*(1.0-ice);
+  col+=vec3(1.0,0.93,0.80)*spec+vec3(0.35,0.58,0.95)*(sheen+fresW*lit);
+  /* ابرها */
+  if(cfS>0.002){
+    float cl=cloudAt(N,ws,ds);
+    float cf=cfS*0.78;
+    vec3 cc=mix(vec3(0.62,0.68,0.78),vec3(1.0),smoothstep(-0.2,0.6,dot(N,Ls)))*(0.5+0.5*lit);
+    col=mix(col,cc,cl*cf);
   }
-  float fr=pow(1.0-max(dot(N,V),0.0),3.0);
-  col=mix(col,vec3(0.25,0.55,1.0),fr*0.50);
-  col=mix(vec3(dot(col,vec3(0.3,0.59,0.11))),col,1.12);
-  gl_FragColor=vec4(pow(col,vec3(0.94)),1.0);
+  /* شفق قطبی */
+  float au=smoothstep(0.76,0.86,latn)*(1.0-smoothstep(0.90,0.98,latn));
+  float aun=n3(vec3(lon*9.0,latn*46.0-uTime*0.35,uTime*0.18))*n3(vec3(lon*3.0+4.0,latn*12.0,uTime*0.07));
+  col+=mix(vec3(0.10,1.0,0.55),vec3(0.55,0.25,1.0),smoothstep(0.80,0.93,latn))*au*aun*(0.03+0.55*night);
+  /* پالس رادار از پایتخت خودت */
+  if(dot(uMeP,uMeP)>0.1){
+    float an=acos(clamp(dot(N,uMeP),-1.0,1.0));
+    float rr=fract(uTime/11.0)*2.3;
+    float rg=exp(-pow((an-rr)/0.028,2.0))*(1.0-rr/2.3);
+    col+=vec3(1.0,0.28,0.22)*rg*0.45*(0.5+0.5*land);
+  }
+  /* جو */
+  float NV=max(dot(N,V),0.0);
+  float fr=pow(1.0-NV,3.0);
+  float sunSide=0.40+0.60*smoothstep(-0.4,0.6,mix(dot(N,uLight),sd,uNight));
+  vec3 atm=mix(vec3(0.20,0.46,1.0),vec3(0.55,0.80,1.0),pow(1.0-NV,6.0));
+  col=mix(col,atm*sunSide,fr*0.62);
+  col+=vec3(0.30,0.60,1.0)*pow(1.0-NV,7.0)*0.55*sunSide;
+  col=vec3(1.0)-exp(-col*1.32);
+  col=mix(vec3(dot(col,vec3(0.3,0.59,0.11))),col,1.14);
+  gl_FragColor=vec4(pow(col,vec3(0.92)),1.0);
 }`;
 
 /* ---- راه‌اندازی GL ---- */
@@ -747,7 +819,7 @@ function drawGL(ts){
   gl.uniform2f(u.uGrid,g.W,g.H);gl.uniform2f(u.uWorld,worldW(),worldH());gl.uniform2f(u.uSmPx,1/M.sm.w,1/M.sm.h);
   gl.uniform3f(u.uLight,lx/ll,ly/ll,lz/ll);gl.uniform3f(u.uCam,e[0],e[1],e[2]);
   gl.uniform1f(u.uTime,M.reduce?0:ts/1000);gl.uniform1f(u.uPxAng,angPerPx());
-  gl.uniform1f(u.uSel,S.sel);gl.uniform1f(u.uCrown,S.map.crown.i);gl.uniform1f(u.uMe,S.me&&S.me.reg?S.me.idx:-1);gl.uniform1f(u.uPalW,M.palW);gl.uniform1f(u.uNight,S.night?1:0);gl.uniform1f(u.uAmp,M.vtf?AMP:0);{const sn=sunVec();gl.uniform3f(u.uSun,sn[0],sn[1],sn[2])}
+  gl.uniform1f(u.uSel,S.sel);gl.uniform1f(u.uCrown,S.map.crown.i);gl.uniform1f(u.uMe,S.me&&S.me.reg?S.me.idx:-1);gl.uniform1f(u.uPalW,M.palW);gl.uniform1f(u.uNight,S.night?1:0);{const mi=S.me&&S.me.reg?S.me.idx:-1,mc=mi>=0?M.cap[mi]:null;gl.uniform3f(u.uMeP,mc?mc.p[0]:0,mc?mc.p[1]:0,mc?mc.p[2]:0)}gl.uniform1f(u.uAmp,M.vtf?AMP:0);{const sn=sunVec();gl.uniform3f(u.uSun,sn[0],sn[1],sn[2])}
   gl.drawElements(gl.TRIANGLES,M.nIdx,gl.UNSIGNED_SHORT,0);
 }
 function stepFlash(){
@@ -801,6 +873,14 @@ function arcAt(a,b,t,om,h){const s=Math.sin(om),k1=Math.sin((1-t)*om)/s,k2=Math.
   return{p:[a[0]*k1+b[0]*k2,a[1]*k1+b[1]*k2,a[2]*k1+b[2]*k2],r:1+h*Math.sin(PI*t)}}
 function drawFx(ts){
   const x=FX.cv.getContext('2d');if(!x)return;x.setTransform(FX.d,0,0,FX.d,0,0);x.clearRect(0,0,M.w,M.h);
+  /* ☄ شهاب‌سنگ‌های گذرا توی آسمون */
+  if(!M.reduce){
+    if(!FX.ss&&ts>(FX.nx||0)){const a=Math.random()*.5+.15;FX.ss={t0:ts,x:Math.random()*M.w*.9,y:Math.random()*M.h*.28,vx:Math.cos(a)*(Math.random()<.5?1:-1),vy:Math.sin(a),l:90+Math.random()*90}}
+    if(FX.ss){const s=FX.ss,u=(ts-s.t0)/900;if(u>=1){FX.ss=null;FX.nx=ts+5000+Math.random()*9000}else{
+      const px=s.x+s.vx*u*s.l*3.2,py=s.y+s.vy*u*s.l*3.2,tx=px-s.vx*s.l*Math.min(1,u*3),ty=py-s.vy*s.l*Math.min(1,u*3),al=Math.sin(PI*u);
+      const g=x.createLinearGradient(tx,ty,px,py);g.addColorStop(0,'rgba(180,210,255,0)');g.addColorStop(1,`rgba(255,255,255,${.9*al})`);
+      x.strokeStyle=g;x.lineWidth=1.6;x.lineCap='round';x.beginPath();x.moveTo(tx,ty);x.lineTo(px,py);x.stroke()}}
+  }
   if(!S.map||!M.VP||S.tab!=='map')return;const now=performance.now(),cs=S.map.cs;x.lineCap='round';x.globalCompositeOperation='lighter';
   const cr=S.map.crown.i,me=S.me&&S.me.reg?S.me.idx:-1,bh=Math.min(.32,.05+.1*(M.d-1)),pl=.75+.25*Math.sin(ts/280);
   const beam=(k,h,col,w)=>{const c=M.cap[k];if(!c||!vis(c.p))return;const a=scr(c.p,1),b=scr(c.p,1+h);if(!a||!b)return;
