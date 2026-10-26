@@ -15,8 +15,10 @@ from functools import lru_cache
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 TIERS = ((34, 22), (46, 30), (60, 38), (80, 50), (110, 66), (150, 90), (200, 120))     # (ستون، ردیف)؛ با رشد بازی نقشه بزرگ‌تر میشه
-LAND_FRAC = 0.58
-SEED = 20240915
+LAND_FRAC = 0.42
+SEED = 6
+CONT_F = 2.2                                            # فرکانس قاره‌ها (بیشتر = قاره‌ی کوچک‌تر و بیشتر)
+WARP = 0.9
 SQ3 = math.sqrt(3)
 TOP_N = 12                                              # این تعداد کشور برتر روی نقشه شماره می‌خورن
 NAME_N = 36                                             # این تعداد کشور برتر اسمشون هم روی نقشه نوشته میشه
@@ -48,31 +50,92 @@ def _xy(i, W):
     return q + 0.5 * (r & 1), r * 0.8660254
 
 
+def _h3(ix, iy, iz):
+    h = (ix * 73856093) ^ (iy * 19349663) ^ (iz * 83492791) ^ SEED
+    h = ((h ^ (h >> 13)) * 1274126177) & 0xFFFFFFFF
+    return ((h ^ (h >> 16)) & 0xFFFF) / 65535.0
+
+
+def _vn3(x, y, z):
+    """نویز مقداریِ سه‌بعدی (نرم)؛ روی کره پیوسته‌ست، پس نه درز داره نه کشیدگی قطب."""
+    ix, iy, iz = math.floor(x), math.floor(y), math.floor(z)
+    fx, fy, fz = x - ix, y - iy, z - iz
+    fx, fy, fz = fx * fx * (3 - 2 * fx), fy * fy * (3 - 2 * fy), fz * fz * (3 - 2 * fz)
+    def l(a, b, t):
+        return a + (b - a) * t
+    return l(l(l(_h3(ix, iy, iz), _h3(ix + 1, iy, iz), fx), l(_h3(ix, iy + 1, iz), _h3(ix + 1, iy + 1, iz), fx), fy),
+             l(l(_h3(ix, iy, iz + 1), _h3(ix + 1, iy, iz + 1), fx), l(_h3(ix, iy + 1, iz + 1), _h3(ix + 1, iy + 1, iz + 1), fx), fy), fz)
+
+
+def _fbm3(x, y, z, octs):
+    t = n = 0.0
+    a, f = 1.0, 1.0
+    for _ in range(octs):
+        t += a * _vn3(x * f + 17.3 * f, y * f - 9.1 * f, z * f + 4.7 * f)
+        n += a
+        a *= 0.5
+        f *= 2.03
+    return t / n
+
+
+def _conts(k=7):
+    """مرکز و اندازه‌ی قاره‌ها روی کره: نقطه‌هایی که تا جای ممکن از هم دورن (ثابت با SEED)."""
+    rr = random.Random(SEED * 7 + 1)
+    def rp():
+        z = rr.uniform(-0.8, 0.8)
+        t = rr.uniform(0, 2 * math.pi)
+        c = math.sqrt(1 - z * z)
+        return (c * math.cos(t), z, c * math.sin(t))
+    pts = [rp()]
+    while len(pts) < k:
+        cand = [rp() for _ in range(60)]
+        pts.append(max(cand, key=lambda p: min(math.acos(max(-1, min(1, p[0] * q[0] + p[1] * q[1] + p[2] * q[2]))) for q in pts)))
+    return tuple((p[0], p[1], p[2], rr.uniform(0.32, 0.62)) for p in pts)
+
+
+CONTS = _conts()
+
+
+def _sph(q, r, W, H):
+    """مختصات خونه روی کره (همون نگاشتی که مینی‌اپ استفاده می‌کنه)."""
+    u = (q + 0.5 * (r & 1) + 0.5) / (W + 0.5)
+    lon = (u - 0.5) * 2 * math.pi
+    lat = (0.5 - (1.5 * r + 1) / (1.5 * H + 0.5)) * math.pi
+    c = math.cos(lat)
+    return c * math.sin(lon), math.sin(lat), c * math.cos(lon), lat
+
+
 @lru_cache(maxsize=8)
 def make_world(tier):
-    """(W, H, نقشه‌ی همسایه‌ها، فهرست خونه‌های خشکی، نقطه‌های پایتخت به ترتیب فاصله‌ی حداکثری، ارتفاع 0..1 هر خونه)"""
+    """(W, H, نقشه‌ی همسایه‌ها، فهرست خونه‌های خشکی، نقطه‌های پایتخت به ترتیب فاصله‌ی حداکثری، ارتفاع 0..1 هر خونه)
+
+    قاره‌ها از نویز سه‌بعدیِ روی خودِ کره ساخته میشن (چند قاره‌ی نامنظم + جزیره + رشته‌کوه)؛
+    برای همه‌ی اندازه‌ها یه دنیای یکسانه و فقط ریزتر میشه."""
     W, H = TIERS[tier]
     N = W * H
     rnd = random.Random(SEED + tier)
     nb = _nbrs(W, H)
-    blobs = [(rnd.uniform(0.06, 0.94) * W, rnd.uniform(0.12, 0.88) * H * 0.866,
-              rnd.uniform(0.045, 0.11) * W, rnd.uniform(0.7, 1.2)) for _ in range(max(10, W * H // 110))]
-    noise = [rnd.random() for _ in range(N)]
-    for _ in range(2):                                                    # صاف‌کردن تا ساحل طبیعی بشه
-        noise = [(noise[i] + sum(noise[j] for j in nb[i] if j >= 0)) / (1 + sum(1 for j in nb[i] if j >= 0)) for i in range(N)]
-    lo, hi = min(noise), max(noise)
-    f = []
+    f, ridge, pl = [0.0] * N, [0.0] * N, [0.0] * N
     for i in range(N):
-        x, y = _xy(i, W)
-        v = sum(a * math.exp(-((x - bx) ** 2 + (y - by) ** 2) / (2 * s * s)) for bx, by, s, a in blobs)
-        v += 0.9 * (noise[i] - lo) / max(1e-9, hi - lo)
         q, r = i % W, i // W
+        x, y, z, lat = _sph(q, r, W, H)
+        wx, wy, wz = (_fbm3(x * 1.7 + 3, y * 1.7, z * 1.7, 2) - 0.5) * WARP, (_fbm3(x * 1.7, y * 1.7 + 5, z * 1.7, 2) - 0.5) * WARP, (_fbm3(x * 1.7, y * 1.7, z * 1.7 + 8, 2) - 0.5) * WARP
+        px, py, pz = x + wx, y + wy, z + wz                                  # کمی تابِ دامنه تا ساحل‌ها طبیعی و پرپیچ‌وخم بشن
+        det = 0.62 * _fbm3(px * CONT_F, py * CONT_F, pz * CONT_F, 3) + 0.26 * _fbm3(px * 3.0, py * 3.0, pz * 3.0, 3) + 0.12 * _fbm3(px * 7.0, py * 7.0, pz * 7.0, 2)
+        infl = 0.0
+        for cx, cy, cz, sz in CONTS:                                         # هر قاره یه هسته داره؛ پس قاره‌ها از هم جدا می‌مونن
+            ang = math.acos(max(-1.0, min(1.0, x * cx + y * cy + z * cz)))
+            infl = max(infl, math.exp(-(ang / sz) ** 2))
+        v = 0.68 * infl + 0.58 * det
+        a = abs(lat) / (math.pi / 2)
+        v -= 0.50 * max(0.0, (a - 0.78) / 0.22) ** 1.5                      # نزدیک قطب‌ها یخ و دریا
         edge = min(q, W - 1 - q, r, H - 1 - r)
-        v -= 0.9 * max(0, 3 - edge)                                        # حاشیه همیشه اقیانوسه
-        f.append(v)
+        v -= 0.9 * max(0, 3 - edge)                                          # حاشیه‌ی نقشه همیشه اقیانوسه
+        f[i] = v
+        ridge[i] = 1.0 - abs(2.0 * _fbm3(x * 3.3 + 20, y * 3.3, z * 3.3, 3) - 1.0)
     thr = sorted(f, reverse=True)[int(N * LAND_FRAC)]
     land = [v > thr for v in f]
-    seen = [False] * N                                                     # جزیره‌های ریز (کمتر از ۶ خونه) حذف
+    seen = [False] * N                                                       # جزیره‌های خیلی ریز (کمتر از ۴ خونه) حذف
     for i in range(N):
         if land[i] and not seen[i]:
             comp, st = [], [i]
@@ -84,11 +147,10 @@ def make_world(tier):
                     if b >= 0 and land[b] and not seen[b]:
                         seen[b] = True
                         st.append(b)
-            if len(comp) < 6:
+            if len(comp) < 4:
                 for a in comp:
                     land[a] = False
     cells = [i for i in range(N) if land[i]]
-    # پایتخت‌ها: نقطه‌هایی که تا جای ممکن از هم دورن (برای هر کشور یکی، ثابت و قابل پیش‌بینی)
     pts = []
     if cells:
         k = min(len(cells), 600)
@@ -108,7 +170,9 @@ def make_world(tier):
     fmax = max((f[c] for c in cells), default=thr + 1)
     elev = [0.0] * N
     for c in cells:
-        elev[c] = max(0.0, min(1.0, (f[c] - thr) / max(1e-9, fmax - thr) * 0.8 + 0.25 * noise[c] / max(1e-9, hi)))
+        inl = max(0.0, min(1.0, (f[c] - thr) / max(1e-9, fmax - thr)))      # هرچی داخل‌تر، بلندتر
+        rg = ridge[c] ** 2.2 * min(1.0, inl * 3.0)                          # رشته‌کوه فقط داخل خشکی
+        elev[c] = max(0.0, min(1.0, 0.10 + 0.34 * inl ** 0.8 + 0.62 * rg))
     return W, H, nb, cells, pts, elev
 
 

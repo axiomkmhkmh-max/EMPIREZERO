@@ -353,6 +353,8 @@ uniform float uTime,uPxAng,uSel,uCrown,uMe,uPalW,uNight;
 uniform vec3 uSun;
 const float PI=3.14159265;const float SQ3=1.7320508;
 float vn(vec2 p){vec2 i=floor(p);vec2 f=fract(p);f=f*f*(3.0-2.0*f);return texture2D(tNo,(i+f+0.5)/256.0).r;}
+float hdet(vec2 p){float a=0.5;float s=0.0;for(int i=0;i<4;i++){float n=vn(p);s+=a*(1.0-abs(2.0*n-1.0));p=p*2.1+vec2(3.1,7.7);a*=0.5;}return s;}
+float cld(vec2 w){return smoothstep(0.66,0.92,vn(w*0.045+vec2(uTime*0.012,0.0))*0.6+vn(w*0.11-vec2(uTime*0.02,uTime*0.006)+11.0)*0.3+vn(w*0.26+5.0)*0.1);}
 vec2 hexAt(vec2 w){
   vec2 p=vec2(w.x-SQ3*0.5,w.y-1.0);
   float x=SQ3/3.0*p.x-p.y/3.0;float z=2.0/3.0*p.y;float y=-x-z;
@@ -410,7 +412,8 @@ void main(){
   float land=smoothstep(0.46-aa,0.46+aa,cv);
 
   /* خونه */
-  vec2 h=hexAt(w);vec2 dl=w-hexCenter(h);
+  vec2 wq=w+(vec2(vn(w*0.55),vn(w*0.55+5.2))-0.5)*1.1+(vec2(vn(w*1.9),vn(w*1.9+3.3))-0.5)*0.35*detail;
+  vec2 h=hexAt(wq);vec2 dl=wq-hexCenter(h);
   vec4 cd=cellTex(h);
   float o=ownerOf(cd);float cLand=step(0.5,cd.a);
 
@@ -420,21 +423,38 @@ void main(){
   float eU=texture2D(tSm,uv-oy).g;float eD=texture2D(tSm,uv+oy).g;
   float ee=clamp(sm.g+(n1-0.5)*0.20+(n2-0.5)*0.10+(n3-0.5)*0.08*detail,0.0,1.0);
   float mtn=smoothstep(0.08,0.55,ee);
-  float d1=vn(w*2.3);vec2 g1=vec2(vn(w*2.3+vec2(0.3,0.0))-d1,vn(w*2.3+vec2(0.0,0.3))-d1);
-  float d2=vn(w*0.55+9.1);vec2 g2=vec2(vn(w*0.55+vec2(9.4,9.1))-d2,vn(w*0.55+vec2(9.1,9.4))-d2);
-  vec2 gr=vec2(eR-eL,eD-eU)*13.0+g2*(0.9+2.4*mtn)+g1*(0.5+1.6*mtn)*detail;
-  vec3 sl=normalize(vec3(-gr.x,-gr.y,1.0));
-  float steep=clamp((1.0-sl.z)*5.0,0.0,1.0);
-  float shade=clamp(dot(sl,normalize(vec3(-0.55,-0.6,0.62)))/0.64,0.38,1.65);
-  float moist=clamp(n1*1.25+(n2-0.5)*0.8-ee*0.35,0.0,1.0);
-  vec3 forest=mix(vec3(0.30,0.46,0.16),vec3(0.09,0.26,0.11),smoothstep(0.35,0.80,moist));
-  vec3 base=mix(vec3(0.66,0.57,0.35),forest,smoothstep(0.20,0.52,moist));
+  float latn=abs(lat)/(PI*0.5);
+  vec2 gr=vec2(eR-eL,eD-eU)*13.0;
+  float hdv=0.0;
+  if(detail>0.02&&land>0.02){
+    vec2 q=w*1.4;float h0=hdet(q);
+    gr+=vec2(hdet(q+vec2(0.12,0.0))-h0,hdet(q+vec2(0.0,0.12))-h0)*(10.0+22.0*mtn)*detail;
+    hdv=h0;
+  }
+  float g20=vn(w*0.55+9.1);
+  gr+=vec2(vn(w*0.55+vec2(9.4,9.1))-g20,vn(w*0.55+vec2(9.1,9.4))-g20)*(0.9+2.4*mtn);
+  vec3 Eh=normalize(cross(vec3(0.0,1.0,0.0),N)+vec3(0.0001,0.0,0.0));vec3 Nh=cross(N,Eh);
+  vec3 Ls0=normalize(mix(uLight,uSun,uNight));
+  vec3 Np=normalize(N-gr.x*Eh+gr.y*Nh);
+  float steep=clamp((1.0-dot(Np,N))*3.2*3.0,0.0,1.0);
+  float shade=clamp(1.0+2.2*(dot(Np,Ls0)-dot(N,Ls0)),0.34,1.7);
+  float dz0=(latn-0.30)/0.13;float dryB=exp(-dz0*dz0);
+  float moist=clamp(n1*1.25+(n2-0.5)*0.8-ee*0.35-0.5*dryB*(0.55+0.45*n3)+0.28*(1.0-smoothstep(0.0,0.3,latn)),0.0,1.0);
+  vec3 forest=mix(vec3(0.30,0.46,0.16),vec3(0.07,0.24,0.10),smoothstep(0.35,0.80,moist));
+  forest=mix(forest,vec3(0.10,0.30,0.16),smoothstep(0.45,0.80,latn)*0.7);
+  vec3 desert=mix(vec3(0.80,0.66,0.40),vec3(0.70,0.50,0.30),n2);
+  vec3 base=mix(desert,forest,smoothstep(0.18,0.50,moist));
+  base=mix(base,vec3(0.50,0.52,0.42),smoothstep(0.62,0.78,latn)*0.8);
   vec3 rock=mix(vec3(0.40,0.35,0.31),vec3(0.58,0.52,0.46),n3);
-  vec3 tc=mix(base,rock,smoothstep(0.34,0.62,ee+steep*0.9));
-  tc=mix(tc,vec3(0.94,0.96,1.0),smoothstep(0.76,0.90,ee+(n2-0.5)*0.12-steep*0.5));
+  vec3 tc=mix(base,rock,smoothstep(0.34,0.62,ee+steep*0.5));
+  float snowLine=0.90-0.45*latn;
+  tc=mix(tc,vec3(0.94,0.96,1.0),smoothstep(snowLine-0.08,snowLine+0.06,ee+(n2-0.5)*0.12-steep*0.4+smoothstep(0.78,0.92,latn)*0.6));
   tc=mix(tc,vec3(0.80,0.74,0.52),(1.0-smoothstep(0.47,0.57,cv))*0.55);
+  float rvr=(1.0-smoothstep(0.0,0.02,abs(vn(w*0.26+vec2(2.2,5.5)+(n1-0.5)*0.7)-0.5)))*(1.0-smoothstep(0.12,0.50,ee))*smoothstep(4.0,16.0,hexPx)*step(0.2,moist+0.3);
+  tc=mix(tc,vec3(0.13,0.34,0.50),rvr*0.85);
+  if(detail>0.02&&land>0.02)tc*=mix(1.0,0.82+0.36*hdv,detail);
   float ao=mix(0.78,1.0,smoothstep(0.02,0.40,ee))*(1.0-0.22*steep);
-  vec3 lc=tc*(0.58+0.42*shade)*ao*(0.94+0.12*n2);
+  vec3 lc=tc*(0.52+0.48*shade)*ao*(0.94+0.12*n2);
 
   /* سرزمین کشورها */
   float e_px=1000.0;float diff=0.0;vec3 pc=vec3(1.0);float isSel=0.0;float isCrown=0.0;float isMe=0.0;
@@ -473,8 +493,9 @@ void main(){
 
   /* اقیانوس */
   float depth=sm.b;
-  vec3 oc=mix(vec3(0.010,0.050,0.115),vec3(0.025,0.185,0.340),smoothstep(0.0,0.30,depth));
-  oc=mix(oc,vec3(0.06,0.46,0.58),smoothstep(0.28,0.78,depth)*0.92);
+  vec3 oc=mix(vec3(0.012,0.095,0.235),vec3(0.03,0.26,0.47),smoothstep(0.0,0.30,depth));
+  oc=mix(oc,vec3(0.07,0.58,0.68),smoothstep(0.28,0.78,depth)*0.92);
+  oc*=0.90+0.20*vn(w*0.12+3.1);
   float wv=vn(w*0.5+vec2(uTime*0.05,uTime*0.03))*0.5+vn(w*1.3-vec2(uTime*0.04,0.0))*0.25*detail;
   oc*=0.88+wv*0.30;
   float foam=smoothstep(0.26,0.43,cv)*(1.0-land);
@@ -483,6 +504,8 @@ void main(){
   float gl=1.0-smoothstep(ds*0.4,ds*1.5,min(gd.x*max(cos(lat),0.05),gd.y));
   oc+=vec3(0.30,0.60,1.0)*gl*0.045*(1.0-smoothstep(10.0,22.0,hexPx));
 
+  float cfS=1.0-smoothstep(5.0,12.0,hexPx);
+  if(cfS>0.002)lc*=1.0-0.32*cld(w+vec2(1.3,0.9))*cfS;
   vec3 col=mix(oc,lc,land);
 
   /* نور و جو */
@@ -497,7 +520,8 @@ void main(){
   col+=(pc*(0.35+0.65*n3)*owned+lineC*glow*0.7)*(1.0-dayF)*uNight;
   col+=vec3(1.0,0.48,0.16)*exp(-sd*sd/0.010)*0.16*uNight;
   vec3 Ls=normalize(mix(uLight,uSun,uNight));
-  float spec=pow(max(dot(N,normalize(Ls+V)),0.0),70.0)*(1.0-land)*0.55*(0.5+vn(w*1.6+uTime*0.3))*mix(1.0,dayF,uNight);
+  vec3 Nw=normalize(N+(Eh*(vn(w*3.1+vec2(uTime*0.25,0.0))-0.5)+Nh*(vn(w*3.1+vec2(4.0,uTime*0.21+4.0))-0.5))*0.30*(0.35+0.65*detail));
+  float spec=pow(max(dot(Nw,normalize(Ls+V)),0.0),110.0)*(1.0-land)*2.2*mix(1.0,dayF,uNight);
   col+=vec3(0.70,0.86,1.0)*spec;
   /* ابرها (با زوم محو میشن) */
   float cf=1.0-smoothstep(5.0,12.0,hexPx);
@@ -508,6 +532,7 @@ void main(){
   }
   float fr=pow(1.0-max(dot(N,V),0.0),3.0);
   col=mix(col,vec3(0.25,0.55,1.0),fr*0.50);
+  col=mix(vec3(dot(col,vec3(0.3,0.59,0.11))),col,1.12);
   gl_FragColor=vec4(pow(col,vec3(0.94)),1.0);
 }`;
 
@@ -534,7 +559,7 @@ function glInit(){
   M.vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,M.vb);gl.bufferData(gl.ARRAY_BUFFER,pos,gl.STATIC_DRAW);
   M.ib=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,M.ib);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(idx),gl.STATIC_DRAW);M.nIdx=idx.length;
   /* نویز */
-  const nz=new Uint8Array(256*256*4);let s=1234567;for(let i=0;i<nz.length;i++){s=(s*1664525+1013904223)>>>0;nz[i]=s>>>24}
+  const nz=M.nz=new Uint8Array(256*256*4);let s=1234567;for(let i=0;i<nz.length;i++){s=(s*1664525+1013904223)>>>0;nz[i]=s>>>24}
   M.tNo=glTex(gl,4,true,true);gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,256,256,0,gl.RGBA,gl.UNSIGNED_BYTE,nz);
   gl.clearColor(0,0,0,0);
   return true;
@@ -579,7 +604,7 @@ function buildGeo(g){
   M.cd=new Uint8Array(N*4);for(let i=0;i<n;i++){const c=g.cells[i];M.cd[c*4+2]=Math.round(elv[c]*255);M.cd[c*4+3]=255}
   M.fx=new Uint8Array(N);
   /* بافت نرم‌شده برای ساحل، شیب و عمق دریا */
-  const ww=worldW(),wh=worldH(),GW=Math.min(1024,Math.round(W*3)),GH=Math.max(8,Math.round(GW*wh/ww));
+  const ww=worldW(),wh=worldH(),GW=Math.min(1536,Math.round(W*7)),GH=Math.max(8,Math.round(GW*wh/ww));
   const L=new Float32Array(GW*GH),E=new Float32Array(GW*GH);
   for(let gy=0;gy<GH;gy++)for(let gx=0;gx<GW;gx++){
     const [q,r]=hexAt((gx+.5)/GW*ww,(gy+.5)/GH*wh);
@@ -657,9 +682,14 @@ function rayHit(px,py){
   const b=o[0]*dx+o[1]*dy+o[2]*dz,c=o[0]*o[0]+o[1]*o[1]+o[2]*o[2]-1,disc=b*b-c;if(disc<0)return null;
   const s=-b-Math.sqrt(disc);return[o[0]+s*dx,o[1]+s*dy,o[2]+s*dz];
 }
+function vnJ(x,y){const ix=Math.floor(x),iy=Math.floor(y);let fx=x-ix,fy=y-iy;fx=fx*fx*(3-2*fx);fy=fy*fy*(3-2*fy);
+  const X=ix+fx,Y=iy+fy,x0=Math.floor(X),y0=Math.floor(Y),tx=X-x0,ty=Y-y0,N=M.nz,g=(a,b)=>N[((((b%256)+256)%256)*256+(((a%256)+256)%256))*4]/255;
+  return(g(x0,y0)*(1-tx)+g(x0+1,y0)*tx)*(1-ty)+(g(x0,y0+1)*(1-tx)+g(x0+1,y0+1)*tx)*ty}
+function warpW(x,y){const hp=PI/(Math.max(1e-6,angPerPx())*worldH()),t=clampv((hp-4)/18,0,1),dt=t*t*(3-2*t);
+  return[x+(vnJ(x*.55,y*.55)-.5)*1.1+(vnJ(x*1.9,y*1.9)-.5)*.35*dt,y+(vnJ(x*.55+5.2,y*.55+5.2)-.5)*1.1+(vnJ(x*1.9+3.3,y*1.9+3.3)-.5)*.35*dt]}
 function hit(px,py){
   if(!M.VP||!S.geo)return-1;const p=rayHit(px,py);if(!p)return-1;
-  const lon=Math.atan2(p[0],p[2]),lat=Math.asin(clampv(p[1],-1,1)),[q,r]=hexAt((lon/TAU+.5)*worldW(),(.5-lat/PI)*worldH());
+  const lon=Math.atan2(p[0],p[2]),lat=Math.asin(clampv(p[1],-1,1)),wx=(lon/TAU+.5)*worldW(),wy=(.5-lat/PI)*worldH(),wq=warpW(wx,wy),[q,r]=hexAt(wq[0],wq[1]);
   if(q<0||r<0||q>=S.geo.W||r>=S.geo.H)return-1;return M.li[r*S.geo.W+q];
 }
 function llAt(px,py){const p=rayHit(px,py);return p?[Math.atan2(p[0],p[2]),Math.asin(clampv(p[1],-1,1))]:null}

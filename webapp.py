@@ -235,7 +235,7 @@ async def h_index(request):
 async def h_geo(request):
     if not HUB["geo"]:
         await refresh(force=True)
-    tag = f"geo{HUB['geo']['tier']}v2"            # v2: فیلد ev (ارتفاع دقیق) اضافه شد؛ کش قدیمی باطل میشه
+    tag = f"geo{HUB['geo']['tier']}v3"            # v3: دنیای تازه (قاره‌های جدید)؛ کش قدیمی باطل میشه
     if request.headers.get("If-None-Match") == tag:
         return web.Response(status=304)
     return web.json_response(HUB["geo"], headers={"ETag": tag, "Cache-Control": "no-cache"})
