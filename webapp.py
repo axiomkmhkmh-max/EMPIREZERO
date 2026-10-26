@@ -36,7 +36,8 @@ STATS_EVERY = 20             # هر چند ثانیه امتیازها/سپره�
 NEWS_KEEP = 30
 
 HUB = dict(ver="0", lay=None, map=None, geo={}, scores={}, shields={}, scores_ts=0.0,
-           crown_key=None, news=[], clients={}, online=0)
+           crown_key=None, news=[], clients={}, online=0, capov={})
+CAP_GAP = 24 * 3600          # هر بازیکن روزی یک‌بار می‌تونه پایتختش رو جابه‌جا کنه
 _ME = {}                     # uid → (ts, payload)؛ کش کوتاه برای سبک‌ماندن قفل دیتابیس
 _LAST_BUY = {}
 _TAG = re.compile(r"<[^>]+>")
@@ -78,6 +79,15 @@ def build_geo(tier):
     return dict(tier=tier, W=W, H=H, cells=list(cells), elev=bands, ev=ev)
 
 
+def _cap_of(lay, k, cid):
+    """پایتخت پیش‌فرض، مگه اینکه بازیکن یه استان خودش رو پایتخت کرده باشه."""
+    ov = HUB["capov"].get(cid)
+    own = lay["own"]
+    if ov is not None and 0 <= ov < len(own) and own[ov] == k:
+        return ov
+    return lay["caps"].get(k, -1)
+
+
 def build_map(lay, scores, shields):
     """وضعیت مالکیت + فهرست کشورها. هیچ آیدی تلگرامی توش نیست (فقط اندیس)."""
     cells = worldmap.make_world(lay["tier"])[3]
@@ -87,7 +97,7 @@ def build_map(lay, scores, shields):
         npc = bool(c.get("npc"))
         cs.append(dict(n=c["name"], e=c.get("emblem", "🏛"), l=c["land"], npc=npc,
                        c=list(worldmap.color_of(lay["entries"][k][1], npc)),
-                       cap=lay["caps"].get(k, -1), s=int(scores.get(c["id"], 0)), sh=bool(shields.get(c["id"]))))
+                       cap=_cap_of(lay, k, c["id"]), s=int(scores.get(c["id"], 0)), sh=bool(shields.get(c["id"]))))
     holder = crown.CROWN["holder"]
     ci = next((k for k, c in enumerate(lay["cs"]) if c["id"] == holder), -1) if holder is not None else -1
     cr = dict(i=ci, name=crown.CROWN["name"], since=crown.CROWN["since"], guard=crown.CROWN["guard"])
@@ -95,13 +105,13 @@ def build_map(lay, scores, shields):
 
 
 def _ver(own, cr):
-    h = hashlib.md5(bytes((o + 1) & 255 for o in own) + repr((len(own), cr["i"], cr["name"])).encode()).hexdigest()
+    h = hashlib.md5(bytes((o + 1) & 255 for o in own) + repr((len(own), cr["i"], cr["name"], sorted(HUB["capov"].items()))).encode()).hexdigest()
     return h[:10]
 
 
 async def _scores():
     banned = {d["_id"] async for d in db.BANS.find({}, {"_id": 1})}
-    sc, sh, t = {}, {}, time.time()
+    sc, sh, ov, t = {}, {}, {}, time.time()
     async for d in db.C.find({}):
         if d["_id"] in banned:
             continue
@@ -109,8 +119,11 @@ async def _scores():
             E.defaults(d)
             sc[d["_id"]] = E.score(d)
             sh[d["_id"]] = d.get("shield_until", 0) > t
+            if d.get("cap_cell") is not None:
+                ov[d["_id"]] = int(d["cap_cell"])
         except Exception:
             continue
+    HUB["capov"] = ov
     return sc, sh
 
 
@@ -309,6 +322,43 @@ async def h_buy(request):
     return _json(dict(ok=ok, msg=msg, me=me, shop=view))
 
 
+async def h_setcap(request):
+    import admin
+    u = _user(request)
+    if not u:
+        return _json(dict(ok=False, msg="نشست منقضی شده؛ مینی‌اپ رو ببند و دوباره باز کن"), 401)
+    uid = u["id"]
+    if admin.blocked(uid):
+        return _json(dict(ok=False, msg=admin.SET["maint_msg"]))
+    try:
+        cell = int((await request.json()).get("cell"))
+    except Exception:
+        return _json(dict(ok=False, msg="درخواست نامعتبر"), 400)
+    if not HUB["lay"]:
+        await refresh(force=True)
+    lay = HUB["lay"]
+    k = next((i for i, c in enumerate(lay["cs"]) if c["id"] == uid), -1)
+    if k < 0 or not (0 <= cell < len(lay["own"])) or lay["own"][cell] != k:
+        return _json(dict(ok=False, msg="این استان مال کشور تو نیست"))
+    t = time.time()
+    async with db.LOCK:
+        if await db.is_banned(uid):
+            return _json(dict(ok=False, msg="🚫"))
+        c = await db.load(uid)
+        if not c:
+            return _json(dict(ok=False, msg="اول توی ربات بنویس «ثبت نام»"))
+        wait = CAP_GAP - (t - c.get("cap_ts", 0))
+        if wait > 0:
+            return _json(dict(ok=False, msg=f"پایتخت رو تازه جابه‌جا کردی؛ {int(wait // 3600) + 1} ساعت دیگه می‌تونی دوباره", wait=int(wait)))
+        c["cap_cell"], c["cap_ts"] = cell, t
+        await db.save(c)
+        name = c["name"]
+    HUB["capov"][uid] = cell
+    await refresh(force=True)
+    push_news(f"🏛 {name} پایتختش رو به استان تازه‌ای منتقل کرد")
+    return _json(dict(ok=True, msg="🏛 پایتخت جابه‌جا شد", next=t + CAP_GAP))
+
+
 async def h_live(request):
     u = _user(request)
     if not u:
@@ -358,6 +408,7 @@ def make_app():
     app.router.add_get("/api/me", h_me)
     app.router.add_get("/api/shop", h_shop)
     app.router.add_post("/api/buy", h_buy)
+    app.router.add_post("/api/setcap", h_setcap)
     app.router.add_get("/api/live", h_live)
     app.router.add_get("/health", lambda r: web.Response(text="ok"))
     return app
