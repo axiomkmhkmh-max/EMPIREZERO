@@ -298,7 +298,7 @@ const find=n=>S.map&&S.map.cs.findIndex(c=>c.n===n);
 
 /* ---------- نقشه: کره‌ی زمین (WebGL خام، بدون کتابخونه) ---------- */
 const SQ3=Math.sqrt(3),PI=Math.PI,TAU=PI*2,FOV=40*PI/180;
-const M={cv:$('#cv'),gl:null,w:0,h:0,pr:1,prMax:Math.min(2,window.devicePixelRatio||1),scale:1,
+const M={cv:$('#cv'),gl:null,w:0,h:0,pr:1,prMax:Math.min(1.5,window.devicePixelRatio||1),scale:1,
   lon:0,lat:.25,d:6,dT:6,dMin:1.5,dFit:6,dMax:7,vlon:0,vlat:0,tw:null,dirty:true,flashes:[],P:null,
   eye:[0,0,6],bx:[1,0,0],by:[0,1,0],bz:[0,0,1],VP:null,cap:[],lbEls:[],lbOrder:[],
   reduce:matchMedia('(prefers-reduced-motion:reduce)').matches,ptr:new Map(),idle:0,drag:false,
@@ -361,10 +361,10 @@ float n3(vec3 x){vec3 i=floor(x);vec3 f=fract(x);f=f*f*f*(f*(f*6.0-15.0)+10.0);
               mix(mix(h31(i+vec3(0.0,0.0,1.0)),h31(i+vec3(1.0,0.0,1.0)),f.x),mix(h31(i+vec3(0.0,1.0,1.0)),h31(i+vec3(1.0,1.0,1.0)),f.x),f.y),f.z);}
 const mat3 RM=mat3(0.00,0.80,0.60,-0.80,0.36,-0.48,-0.60,-0.48,0.64);
 float fbm(vec3 p,float fd){float a=0.5;float s=0.0;float t=0.0;
-  for(int i=0;i<5;i++){float w=clamp(1.25-fd,0.0,1.0);s+=a*w*n3(p);t+=a*w;p=RM*p*2.03;a*=0.5;fd*=2.03;}
+  for(int i=0;i<3;i++){float w=clamp(1.25-fd,0.0,1.0);s+=a*w*n3(p);t+=a*w;p=RM*p*2.03;a*=0.5;fd*=2.03;}
   return s/max(t,0.001);}
 float rdg(vec3 p,float fd){float a=0.55;float s=0.0;float t=0.0;
-  for(int i=0;i<4;i++){float w=clamp(1.25-fd,0.0,1.0);float r=1.0-abs(2.0*n3(p)-1.0);s+=a*w*r*r;t+=a*w;p=RM*p*2.1;a*=0.5;fd*=2.1;}
+  for(int i=0;i<3;i++){float w=clamp(1.25-fd,0.0,1.0);float r=1.0-abs(2.0*n3(p)-1.0);s+=a*w*r*r;t+=a*w;p=RM*p*2.1;a*=0.5;fd*=2.1;}
   return s/max(t,0.001);}
 vec2 hexAt(vec2 w){
   vec2 p=vec2(w.x-SQ3*0.5,w.y-1.0);
@@ -394,8 +394,8 @@ vec3 rotY(vec3 v,float a){float c=cos(a);float s=sin(a);return vec3(v.x*c-v.z*s,
 float cloudAt(vec3 N,float ws,float fd){
   vec3 q=rotY(N,uTime*0.004)*ws*2.4;
   float base=fbm(q,fd*ws*2.4);
-  float wisp=fbm(q*2.6+vec3(4.0,1.0,7.0)+vec3(uTime*0.01,0.0,0.0),fd*ws*6.2);
-  return smoothstep(0.50,0.80,base*0.78+wisp*0.30);
+  float wisp=n3(q*4.7+vec3(4.0,1.0,7.0));
+  return smoothstep(0.50,0.80,base*0.86+wisp*0.22);
 }
 void main(){
   vec3 N=normalize(vP);
@@ -418,7 +418,8 @@ void main(){
   vec4 sm=texture2D(tSm,uv);
   float nA=fbm(N*ws*1.6,ds*ws*1.6);
   float nB=fbm(N*ws*5.5+vec3(3.7,1.2,8.1),ds*ws*5.5);
-  float nC=fbm(N*ws*17.0+vec3(9.1,4.4,2.3),ds*ws*17.0);
+  float nC=0.5;
+  if(detail>0.02)nC=n3(N*ws*17.0+vec3(9.1,4.4,2.3))*0.7+n3(N*ws*34.0)*0.3;
   float cv=sm.r+(nA-0.5)*0.34+(nB-0.5)*0.17+(nC-0.5)*0.10*detail;
 #ifdef DERIV
   float aa=fwidth(cv)*0.8+0.004;
@@ -445,13 +446,14 @@ void main(){
   float rel=0.0;float steep=0.0;
   vec3 Np=N;
   if(land>0.02){
-    float F0=ws*14.0;float stp=max(0.0032,ds*1.3);float fd=ds*F0;
+    float F0=ws*24.0;float stp=max(0.0032,ds*1.3);float fd=ds*F0;
     vec3 P0=N*F0;
-    float hA=fbm(P0,fd)*0.55+rdg(P0*0.55+vec3(5.0,1.0,9.0),fd*0.55)*(0.25+0.9*mtn);
+    float rd=rdg(P0*0.55+vec3(5.0,1.0,9.0),fd*0.55)*(0.25+0.9*mtn);
+    float hA=fbm(P0,fd)*0.55+rd;
     vec3 N1=normalize(N+Eh*stp);vec3 N2=normalize(N+Nh*stp);
-    float hB=fbm(N1*F0,fd)*0.55+rdg(N1*F0*0.55+vec3(5.0,1.0,9.0),fd*0.55)*(0.25+0.9*mtn);
-    float hC=fbm(N2*F0,fd)*0.55+rdg(N2*F0*0.55+vec3(5.0,1.0,9.0),fd*0.55)*(0.25+0.9*mtn);
-    gr+=vec2(hB-hA,hC-hA)/stp*(0.030+0.050*mtn)*mix(0.6,1.0,detail);
+    float hB=fbm(N1*F0,fd)*0.55+rd;
+    float hC=fbm(N2*F0,fd)*0.55+rd;
+    gr+=vec2(hB-hA,hC-hA)/stp*(0.050+0.070*mtn)*mix(0.6,1.0,detail);
     rel=hA;
   }
   Np=normalize(N-Eh*gr.x*0.42-Nh*gr.y*0.42);
@@ -459,7 +461,7 @@ void main(){
   float shade=clamp(0.62+1.9*(dot(Np,Ls0)-dot(N,Ls0)*0.55),0.28,1.65);
   /* آب‌وهوا: دما و رطوبت */
   float dz0=(latn-0.30)/0.14;float dryB=exp(-dz0*dz0);
-  float mo=fbm(N*ws*3.0+vec3(9.0,2.0,5.0),ds*ws*3.0);
+  float mo=n3(N*ws*3.0+vec3(9.0,2.0,5.0))*0.65+n3(N*ws*7.0+vec3(1.0,5.0,2.0))*0.35;
   float moist=clamp(mo*1.55-0.15-0.55*dryB*(0.5+0.5*nB)-ee*0.30+0.30*(1.0-smoothstep(0.0,0.32,latn)),0.0,1.0);
   float temp=clamp(1.08-latn*1.20-ee*0.55+(nA-0.5)*0.22,0.0,1.0);
   vec3 desert=mix(vec3(0.80,0.64,0.38),vec3(0.66,0.46,0.27),nB);
@@ -474,8 +476,8 @@ void main(){
   vec3 cold=mix(tundra,taiga,smoothstep(0.28,0.70,moist));
   vec3 bio=mix(cold,mix(mild,hot,smoothstep(0.50,0.80,temp)),smoothstep(0.20,0.46,temp));
   /* بافت ریز: خاک و درختان */
-  float grain=fbm(N*ws*70.0,ds*ws*70.0);
-  float trees=n3(N*ws*210.0);
+  float grain=0.5;float trees=0.5;
+  if(near>0.02){grain=n3(N*ws*70.0);trees=n3(N*ws*210.0);}
   bio*=0.86+0.30*grain;
   bio*=1.0-0.20*near*smoothstep(0.30,0.80,moist)*(0.4+0.6*trees);
   vec3 rock=mix(vec3(0.36,0.31,0.28),vec3(0.58,0.52,0.45),nC);
@@ -525,10 +527,10 @@ void main(){
   oc=mix(oc,vec3(0.04,0.50,0.60),smoothstep(0.30,0.80,depth)*0.95);
   float shore=smoothstep(0.30,0.46,cv)*(1.0-land);
   oc=mix(oc,vec3(0.30,0.78,0.72),shore*0.55);
-  oc*=0.88+0.26*fbm(N*ws*4.0+vec3(2.0,7.0,1.0),ds*ws*4.0);
+  oc*=0.88+0.26*n3(N*ws*4.0+vec3(2.0,7.0,1.0));
   float fmw=ws*48.0;float wst=max(0.0016,ds*1.2);
   vec3 Nr=N;
-  {
+  if(near>0.02&&land<0.98){
     float t=uTime*0.35;
     vec3 q0=N*fmw+vec3(t,0.0,t*0.7);
     float a0=n3(q0)*0.7+n3(q0*2.3+vec3(0.0,t,0.0))*0.3;
@@ -541,7 +543,7 @@ void main(){
   float foam=smoothstep(0.34,0.455,cv)*(1.0-land)*(0.45+0.55*foamT)*(0.35+0.65*near);
   oc=mix(oc,vec3(0.80,0.95,0.97),foam*0.55);
   /* یخ دریایی قطب‌ها */
-  float iceN=fbm(N*ws*6.0+vec3(1.0,3.0,5.0),ds*ws*6.0);
+  float iceN=n3(N*ws*6.0+vec3(1.0,3.0,5.0));
   float ice=smoothstep(0.86,0.93,latn+(iceN-0.5)*0.12)*(1.0-land);
   oc=mix(oc,vec3(0.82,0.90,0.96)*(0.85+0.15*iceN),ice);
   vec2 gld=abs(fract(vec2(lon,lat)/(PI/12.0)+0.5)-0.5)*(PI/12.0);
@@ -550,10 +552,10 @@ void main(){
 
   float cfS=1.0-smoothstep(5.0,14.0,hexPx);
   /* سایه‌ی ابر روی زمین و دریا */
+  float clv=0.0;
   if(cfS>0.002){
-    vec3 Nsh=normalize(N-Ls0*0.018+Eh*0.0);
-    float sh=cloudAt(Nsh,ws,ds);
-    lc*=1.0-0.30*sh*cfS;oc*=1.0-0.26*sh*cfS;
+    clv=cloudAt(N,ws,ds);
+    lc*=1.0-0.22*clv*cfS;oc*=1.0-0.20*clv*cfS;
   }
   vec3 col=mix(oc,lc,land);
 
@@ -566,7 +568,7 @@ void main(){
   col*=lit;
   float owned=step(-0.5,o)*cLand*land;
   /* چراغ شهرها: نقطه‌های ریز + درخشش کشور */
-  float cities=smoothstep(0.80,0.96,h31(floor(N*ws*150.0)))*smoothstep(0.38,0.62,fbm(N*ws*9.0+vec3(3.0,3.0,3.0),ds*ws*9.0));
+  float cities=smoothstep(0.80,0.96,h31(floor(N*ws*150.0)))*smoothstep(0.38,0.62,n3(N*ws*9.0));
   float night=(1.0-dayF)*uNight;
   col+=(pc*(0.30+0.70*nC)*owned*0.75+vec3(1.0,0.78,0.40)*cities*owned*(0.4+0.8*near)+lineC*glow*0.7)*night;
   col+=vec3(1.0,0.48,0.16)*exp(-sd*sd/0.010)*0.16*uNight;
@@ -580,7 +582,7 @@ void main(){
   col+=vec3(1.0,0.93,0.80)*spec+vec3(0.35,0.58,0.95)*(sheen+fresW*lit);
   /* ابرها */
   if(cfS>0.002){
-    float cl=cloudAt(N,ws,ds);
+    float cl=clv;
     float cf=cfS*0.78;
     vec3 cc=mix(vec3(0.62,0.68,0.78),vec3(1.0),smoothstep(-0.2,0.6,dot(N,Ls)))*(0.5+0.5*lit);
     col=mix(col,cc,cl*cf);
@@ -850,11 +852,11 @@ function loop(ts){
   if(!M.reduce&&!busy&&M.idle>8&&M.d>M.dFit*.7&&!M.sheet){M.lon+=dt*.05}
   if(M.lon>PI)M.lon-=TAU;if(M.lon<-PI)M.lon+=TAU;
   if(M.flashes.length||M.fxOn)stepFlash();
-  const minGap=busy?0:(M.reduce?250:33);
+  const minGap=busy?0:(M.reduce?250:66);
   if(!M.dirty&&!busy&&ts-lastDraw<minGap)return;
   /* رزولوشن تطبیقی: اگه گوشی کند بود، کمی پایین میاد */
   if(lastDraw){const ft=ts-lastDraw;if(busy){M.fAvg=M.fAvg*.9+Math.min(ft,80)*.1;
-    if(M.fAvg>26&&M.scale>.62&&ts-M.lastRes>1200){M.scale*=.85;M.lastRes=ts;M.fAvg=16;resize()}}}
+    if(M.fAvg>21&&M.scale>.5&&ts-M.lastRes>700){M.scale*=.85;M.lastRes=ts;M.fAvg=16;resize()}}}
   lastDraw=ts;M.dirty=false;drawGL(ts);placeLabels();drawFx(ts);
 }
 
