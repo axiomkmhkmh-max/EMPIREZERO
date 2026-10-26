@@ -434,8 +434,9 @@ async def do_attack(c, tid, pct, stance="bal", conquest=False):
     npc = bool(t.get("npc"))
     pct = max(10, min(100, int(pct)))
     stance = stance if stance in E.STANCES else "bal"
-    if conquest and npc:
-        return "🏴 تسخیر استان فقط روی بازیکن‌هاست"
+    if conquest and npc and (t.get("land", 0) <= config.LAND_MIN or c["land"] >= config.LAND_MAX):
+        return ("🏞 این NPC دیگه استان اضافه نداره؛ چند ساعت صبر کن تا بازسازی بشه" if t.get("land", 0) <= config.LAND_MIN
+                else f"🏞 بیشتر از {config.LAND_MAX} استان نمی‌تونی داشته باشی")
     revenge = (not npc) and c["revenge"].get(str(tid), 0) > now()
     if npc:
         left = config.NPC_CD - (now() - c["npc_cd"].get(str(tid), 0))
@@ -492,6 +493,13 @@ async def do_attack(c, tid, pct, stance="bal", conquest=False):
             if random.random() < 0.10 * t["tier"]:
                 c["fx"]["PHX"] = c["fx"].get("PHX", 0) + 1
                 extra += " · +1 ⚡زیرو"
+            if conquest and r["decisive"] and t["land"] > config.LAND_MIN and c["land"] < config.LAND_MAX:
+                t["land"] -= 1
+                c["land"] += 1
+                extra += f"\n🏴 <b>یه استان از {esc(t['name'])} تسخیر شد!</b> قلمروت {c['land']} استان شد (NPC: {t['land']})"
+                world.news(f"🏴 <b>{esc(c['name'])}</b> یه استان از <b>{esc(t['name'])}</b> تسخیر کرد!", important=True)
+            elif conquest:
+                extra += f"\n🏴 پیروزی قاطع نبود (نسبت {r['ratio']:.2f}؛ باید ≥ {config.CONQUEST_RATIO}) پس استانی تسخیر نشد"
         log_battle(c, f"🌍 {t['name']}: {'پیروزی' if r['win'] else 'شکست'}")
     else:
         c["shield_until"] = 0.0
@@ -674,12 +682,11 @@ async def s_pick(c, tid):
     lines.append(f"🪖 بسیج ۶۰٪ ارتش ≈ {n(logi_cost(c, 60))}💰")
     if rev:
         lines.append("💢 فرصت انتقام داری: بدون فرمان و با غنیمت ۲۵٪ بیشتر")
-    if not npc:
-        lines.append(f"🏴 «تسخیر» ۲ فرمان می‌خواد؛ با پیروزی قاطع (نسبت ≥ {config.CONQUEST_RATIO}) یه استان می‌گیری")
+    lines.append(f"🏴 «تسخیر» ۲ فرمان می‌خواد؛ با پیروزی قاطع (نسبت ≥ {config.CONQUEST_RATIO}) یه استان می‌گیری"
+                 + (f" · 🏞 این NPC الان {t.get('land', 5)} استان داره و کم‌کم بازسازی میشه" if npc else ""))
     lines += ["", STANCE_LEGEND]
     rows = ([[("🎯 حمله‌ی هوشمند (کمترین ارتشِ لازم)", f"w:auto:{tid}")]] if exact else []) + stance_rows(lambda p, s: f"w:go:{tid}:{p}:{s}")
-    if not npc:
-        rows.append([("🏴 تسخیر ۶۰٪", f"w:cq:{tid}:60"), ("🏴 تسخیر ۱۰۰٪", f"w:cq:{tid}:100")])
+    rows.append([("🏴 تسخیر ۶۰٪", f"w:cq:{tid}:60"), ("🏴 تسخیر ۱۰۰٪", f"w:cq:{tid}:100")])
     rows.append([(f"🕵️ جاسوسی · ۵۰۰", f"w:spy:{tid}"), ("🔙", "w:npc" if npc else "w:t")])
     return "\n".join(lines), kb(rows)
 

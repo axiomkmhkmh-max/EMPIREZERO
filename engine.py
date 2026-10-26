@@ -907,7 +907,8 @@ def make_npc(i, spec):
     c["sat"], c["shield_until"] = 55.0, 0.0
     c["buildings"].update(police=spec["tier"] // 2)
     c["name_key"] = "npc%d" % (i + 1)
-    c["base"] = dict(units=dict(c["units"]), treasury=c["treasury"], pop=c["pop"], food=c["food"], steel=c["steel"])
+    c["land"] = config.NPC_LAND_BASE + spec["tier"]
+    c["base"] = dict(units=dict(c["units"]), treasury=c["treasury"], pop=c["pop"], food=c["food"], steel=c["steel"], land=c["land"])
     return c
 
 
@@ -920,3 +921,13 @@ def npc_regen(c, dt):
     c["sat"] = approach(c["sat"], 55.0, 0.1, dt)
     c["unrest"] = approach(c.get("unrest", 0.0), 0.0, 0.1, dt)
     c["shield_until"] = 0.0
+    # 🏞 استان‌های تسخیرشده‌ی NPC کم‌کم برمی‌گردن (dt بر حسب ساعتِ بازیه)
+    b.setdefault("land", max(c.get("land", config.LAND_START), config.NPC_LAND_BASE + c.get("tier", 1)))
+    if c.get("land", b["land"]) < b["land"]:
+        c["land_acc"] = c.get("land_acc", 0.0) + dt
+        while c["land_acc"] >= config.NPC_LAND_REGEN_H and c["land"] < b["land"]:
+            c["land_acc"] -= config.NPC_LAND_REGEN_H
+            c["land"] += 1
+    else:
+        c["land_acc"] = 0.0
+        c["land"] = b["land"]

@@ -10,6 +10,7 @@ import admin
 import cine
 import commands
 import commands_ext  # noqa: F401  (ثبت دستورهای تازه روی همون دیسپچر)
+import feats  # noqa: F401  (استان‌ها و دستاوردها)
 import config
 import crown
 import db
