@@ -629,7 +629,7 @@ def shock(key, up):
         new = w["mid"][key]
     else:
         a = ASSETS[key]
-        w["fx"][key]["p"] = clampv(w["fx"][key]["p"] * f, a["p0"] * 0.15, a["p0"] * 6)
+        w["fx"][key]["p"] = clampv(w["fx"][key]["p"] * f, a["p0"] * config.FX_BAND[0], a["p0"] * config.FX_BAND[1])
         w["fx"][key]["h"] = (w["fx"][key]["h"] + [w["fx"][key]["p"]])[-48:]
         nm, e = a["n"], a["e"]
         new = w["fx"][key]["p"]
@@ -1469,7 +1469,7 @@ async def handle_input(m, S, w, txt, uid):
         a = ASSETS[key]
         async with db.LOCK:
             f = eco.WORLD["fx"][key]
-            f["p"] = clampv(v if mode == "set" else f["p"] + v, a["p0"] * 0.15, a["p0"] * 6)
+            f["p"] = clampv(v if mode == "set" else f["p"] + v, a["p0"] * config.FX_BAND[0], a["p0"] * config.FX_BAND[1])
             f["h"] = (f["h"] + [f["p"]])[-48:]
             await eco.save_world()
         await alog(uid, f"قیمت {key} → {f['p']:.2f}")

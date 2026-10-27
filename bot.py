@@ -11,6 +11,7 @@ import cine
 import commands
 import commands_ext  # noqa: F401  (ثبت دستورهای تازه روی همون دیسپچر)
 import feats  # noqa: F401  (استان‌ها و دستاوردها)
+import social  # noqa: F401  (سرجایزه و مشاور)
 import config
 import crown
 import db
@@ -202,6 +203,7 @@ async def main():
     asyncio.create_task(world.season_loop())
     asyncio.create_task(world.diplo_loop())
     asyncio.create_task(war.boss_loop())
+    asyncio.create_task(war.march_loop())          # 🧭 رسیدن لشکرها
     asyncio.create_task(crown.loop())
     asyncio.create_task(rumor_loop())
     asyncio.create_task(snapshot_loop())

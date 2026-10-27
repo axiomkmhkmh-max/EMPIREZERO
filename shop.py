@@ -32,7 +32,9 @@ def _seed():
 
 # ------------------------------------------------------------------ قیمت‌ها
 def _price_zero(qty):
-    return math.ceil(qty * eco.fx_price("PHX") * (1 + config.FX_FEE))
+    p = eco.fx_price("PHX")
+    avg = p * (1 + eco._slip(qty * p) / 2)                 # همون قیمت اجرای میانگینِ eco.fx_buy
+    return math.ceil(qty * avg * (1 + config.FX_FEE))
 
 
 def _price_item(item, qty):

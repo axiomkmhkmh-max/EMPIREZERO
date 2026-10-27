@@ -200,7 +200,7 @@ async def h_attack(request):
             txt = await war.do_attack(c, tid, pct, stance, cq)
         raw = cine.take_raw(uid)
         cine.take(uid)                                  # فریم‌های متنی ربات اینجا لازم نیستن
-        if raw:
+        if raw or kind not in ("camp", "boss"):          # حمله حالا لشکرکشیه: بدون raw هم وضعیت (لشکر در راه) باید ذخیره بشه
             await db.save(c)
     me = await W.load_me(uid, fresh=True)
     if not raw:

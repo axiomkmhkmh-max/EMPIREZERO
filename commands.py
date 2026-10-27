@@ -13,6 +13,7 @@ import cine
 import config
 import db
 import eco
+import geo
 import engine as E
 import growth
 import prog
@@ -367,13 +368,14 @@ HELP = """📖 <b>راهنما</b> — کلمه رو بنویس، پنلش با�
 🏪 <b>بازار</b>: بازار · خرید غذا 500 · فروش فولاد 50 · آگهی فولاد 100 6 · خرید آگهی 12 · لغو آگهی 12
 💱 <b>ارز و توکن</b>: ارز · خرید ارز زیرو 5 · فروش ارز زیرو 5 · سپر
 🪖 <b>ارتش</b>: ارتش · آموزش پیاده 100 · ارتقا · ارتقا زمینی
-⚔️ <b>جنگ</b>: جنگ · کمپین · جنگ بزرگ · فرمان · حمله 1 · حمله اسم‌کشور 60 یورش · تسخیر اسم‌کشور · جاسوسی اسم‌کشور
+⚔️ <b>جنگ</b>: جنگ · کمپین · جنگ بزرگ · فرمان · حمله 1 · حمله اسم‌کشور 60 یورش · جاسوسی اسم‌کشور
+🧭 <b>لشکرکشی</b>: حمله زمینی / دریایی / هوایی اسم‌کشور 60 (زمان و هزینه به فاصله و ارتش بستگی داره) · لشکرها (فراخوانی) · همسایه‌ها · تسخیر اسم‌کشور (فقط همسایه)
 🏗 <b>صف</b>: صف · تسریع شماره (با زیرو)
 🤝 <b>اتحاد</b> (توی گروه): اتحاد · ساخت اتحاد نام · پیوستن · ترک اتحاد · اهدا 1000 · جنگ اتحاد نام · ضربه
 🕊 <b>دیپلماسی</b>: دیپلماسی · پیمان نام‌کشور 24 · هدیه نام‌کشور فولاد 100 · معامله نام‌کشور فولاد 100 غذا 500
 🎁 <b>رشد</b>: دعوت · جعبه · رویداد · اخبار · برترین‌ها
 🗺 <b>جهان</b>: نقشه (تصویر زنده‌ی استان‌ها) · تاج (امپراتور جهان و جایزه‌هاش)
-🏞 <b>قلمرو</b>: استان‌ها (هدف‌یاب تسخیر NPC) · دستاوردها (جایزه‌ی یک‌باره) · تسخیر اسم‌کشور (روی NPC هم کار می‌کنه)"""
+🏞 <b>قلمرو</b>: استان‌ها · استعمار (آباد کردن زمین خالی؛ هزینه و زمان زیاد) · دستاوردها (جایزه‌ی یک‌باره)"""
 
 
 @cmd("start", need=False)
@@ -740,8 +742,9 @@ async def h_upgrade(m, c, a):
 # ------------------------------------------------------------------ جنگ و جاسوسی
 @cmd("npcs", "کشورها", "جهان")
 async def h_npcs(m, c, a):
+    await geo.refresh(need=c["_id"])
     docs = await db.C.find({"npc": True, "_id": {"$gt": -100}}).sort("_id", -1).to_list(20)
-    return "🌍 <b>کشورهای جهان</b>\n" + "\n".join(war.npc_lines(docs)) + "\n\nمثال: <code>حمله 1</code> یا <code>حمله 3 50</code>\nبرای جنگ بی‌پایان: «کمپین»"
+    return "🌍 <b>کشورهای جهان</b> (📍 فاصله به خونه · 🤝 همسایه)\n" + "\n".join(war.npc_lines(docs, c)) + "\n\nمثال: <code>حمله 1</code> یا <code>حمله 3 50</code>\nبرای جنگ بی‌پایان: «کمپین»"
 
 
 async def resolve(m, tokens):
@@ -769,35 +772,51 @@ async def resolve(m, tokens):
 
 
 STANCE_WORDS = {"یورش": "all", "تهاجمی": "all", "محتاط": "safe", "محتاطانه": "safe", "متعادل": "bal"}
+MODE_WORDS = {"زمینی": "land", "دریایی": "sea", "هوایی": "air", "همه‌جانبه": "all", "همه_جانبه": "all", "ترکیبی": "all"}
 
 
 def _split_war_args(m, a):
-    """«حمله اسم‌کشور 60 یورش» → (توکن‌های هدف، درصد، تاکتیک)"""
-    tk, pct, stance = a.split(), 60, "bal"
-    for _ in range(2):
-        if tk and tk[-1] in STANCE_WORDS:
+    """«حمله زمینی اسم‌کشور 60 یورش» → (توکن‌های هدف، درصد، تاکتیک، نوع حمله)"""
+    tk, pct, stance, mode = a.split(), 60, "bal", "all"
+    for _ in range(3):
+        if tk and tk[0] in MODE_WORDS:
+            mode = MODE_WORDS[tk.pop(0)]
+        elif tk and tk[-1] in MODE_WORDS:
+            mode = MODE_WORDS[tk.pop()]
+        elif tk and tk[-1] in STANCE_WORDS:
             stance = STANCE_WORDS[tk.pop()]
         elif tk and re.fullmatch(r"\d{1,3}%?", tk[-1]) and (len(tk) > 1 or m.reply_to_message):
             pct = max(10, min(100, int(tk.pop().rstrip("%"))))
-    return tk, pct, stance
+    return tk, pct, stance, mode
 
 
 @cmd("attack", "حمله", args=True)
 async def h_attack(m, c, a):
-    tk, pct, stance = _split_war_args(m, a)
+    tk, pct, stance, mode = _split_war_args(m, a)
     tid = await resolve(m, tk)
     if tid is None:
-        return "هدف پیدا نشد. «کشورها» رو ببین، یا روی پیام یه بازیکن ریپلای کن و بنویس «حمله». تاکتیک: یورش / محتاط"
-    return await war.do_attack(c, tid, pct, stance)
+        return ("هدف پیدا نشد. «کشورها» رو ببین، یا روی پیام یه بازیکن ریپلای کن و بنویس «حمله».\n"
+                "تاکتیک: یورش / محتاط · نوع حمله: زمینی / دریایی / هوایی (مثلاً <code>حمله هوایی 3 80</code>)")
+    return await war.do_attack(c, tid, pct, stance, False, mode)
 
 
 @cmd("conquest", "تسخیر", args=True)
 async def h_conquest(m, c, a):
-    tk, pct, _ = _split_war_args(m, a)
+    tk, pct, _, mode = _split_war_args(m, a)
     tid = await resolve(m, tk)
     if tid is None:
-        return "هدف پیدا نشد. مثال: <code>تسخیر نام‌کشور 100</code> (۲ فرمان؛ با پیروزی قاطع یه استان می‌گیری)"
-    return await war.do_attack(c, tid, pct, "bal", True)
+        return "هدف پیدا نشد. مثال: <code>تسخیر نام‌کشور 100</code> (فقط روی همسایه‌ها · ۲ فرمان؛ با پیروزی قاطع یه استان می‌گیری)"
+    return await war.do_attack(c, tid, pct, "bal", True, mode)
+
+
+@cmd("neighbors", "همسایه", "همسایه‌ها", "همسایه ها", "همسایگان")
+async def h_neighbors(m, c, a):
+    return await war.s_neighbors(c)
+
+
+@cmd("marches", "لشکر", "لشکرها", "لشکرکشی", "لشکر کشی")
+async def h_marches(m, c, a):
+    return war.s_marches(c)
 
 
 @cmd("spy", "جاسوسی", args=True)

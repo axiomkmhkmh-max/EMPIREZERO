@@ -44,12 +44,14 @@ def world_step(total_dep=0.0, total_loan=0.0):
     for k, a in ASSETS.items():
         f = w["fx"][k]
         p, anchor = f["p"], a["p0"]
-        r = 0.03 * math.log(anchor / p) + a["vol"] * random.gauss(0, 1)
-        if random.random() < 0.04:
-            s = random.choice((-1, 1)) * random.uniform(0.08, 0.18)
+        lo, hi = _band(k)
+        r = config.FX_REVERT * math.log(anchor / p) + a["vol"] * config.FX_VOL_MULT * random.gauss(0, 1)
+        if random.random() < 0.03:
+            s = random.choice((-1, 1)) * random.uniform(0.04, 0.09)
             r += s
             w["news"] = (w["news"] + [("📈 جهش" if s > 0 else "📉 سقوط") + f" {a['e']} {a['n']}: {s * 100:+.0f}٪"])[-5:]
-        f["p"] = max(anchor * 0.15, min(anchor * 6, p * math.exp(r)))
+        r = max(-config.FX_TICK_MAX, min(config.FX_TICK_MAX, r))
+        f["p"] = max(lo, min(hi, p * math.exp(r)))
         f["h"] = (f["h"] + [f["p"]])[-48:]
     for k, base in config.MID0.items():
         m = w["mid"][k]
@@ -216,8 +218,14 @@ async def list_cancel(c, lid):
 
 
 # ------------------------------------------------------------------ ارز و توکن
+def _band(sym):
+    p0 = ASSETS[sym]["p0"]
+    return p0 * config.FX_BAND[0], p0 * config.FX_BAND[1]
+
+
 def fx_price(sym):
-    return WORLD["fx"][sym]["p"]
+    lo, hi = _band(sym)
+    return max(lo, min(hi, WORLD["fx"][sym]["p"]))
 
 
 def fx_change(sym):
@@ -225,30 +233,58 @@ def fx_change(sym):
     return (h[-1] / h[-2] - 1) * 100 if len(h) > 1 else 0.0
 
 
-def _impact(sym, value, sign):
-    a = ASSETS[sym]
-    f = WORLD["fx"][sym]
-    f["p"] = max(a["p0"] * 0.15, min(a["p0"] * 6, f["p"] * (1 + sign * 0.5 * value / config.FX_LIQ)))
+def _slip(value):
+    """جهش قیمت بعد از معامله‌ی به ارزش value (نسبت به نقدینگی بازار)."""
+    return config.FX_IMPACT * value / config.FX_LIQ
+
+
+def _move(sym, p1):
+    lo, hi = _band(sym)
+    WORLD["fx"][sym]["p"] = max(lo, min(hi, p1))
+
+
+def _day_vol(c, sym):
+    d = c.setdefault("fxday", {})
+    day = int(E.now() // 86400)
+    if d.get("d") != day:
+        d.clear()
+        d["d"] = day
+    return d.setdefault("v", {}), sym
 
 
 def fx_buy(c, sym, qty):
+    """خرید با «قیمت اجرای میانگین» (نه قیمت قبل از جهش)؛ سقف هر معامله و سقف حجم روزانه داره."""
     if sym not in ASSETS or qty <= 0:
         return False, "؟"
     p = fx_price(sym)
-    cost = math.ceil(qty * p * (1 + config.FX_FEE))
+    value = qty * p
+    cap = config.FX_TRADE_CAP * config.FX_LIQ
+    if value > cap:
+        return False, f"📊 هر معامله حداکثر {int(cap / p):,} {config.sym_name(sym)} (به قیمت الان)؛ چندتا معامله کن"
+    vols, _ = _day_vol(c, sym)
+    day_cap = config.FX_DAY_CAP * config.FX_LIQ
+    if vols.get(sym, 0.0) + value > day_cap:
+        left = max(0, int((day_cap - vols.get(sym, 0.0)) / p))
+        return False, f"📊 سقف خرید روزانه‌ی {config.sym_name(sym)} پر شده (امروز {left:,} تا دیگه می‌تونی بخری)"
+    lo, hi = _band(sym)
+    p1 = min(hi, p * (1 + _slip(value)))
+    avg = (p + p1) / 2
+    cost = math.ceil(qty * avg * (1 + config.FX_FEE))
     if c["treasury"] < cost:
         return False, f"💸 {cost:,} سکه لازمه"
     held = c["fx"].get(sym, 0.0)
-    avg = c["fxcost"].get(sym, 0.0)
-    c["fxcost"][sym] = (held * avg + qty * p) / (held + qty)
+    old = c["fxcost"].get(sym, 0.0)
+    c["fxcost"][sym] = (held * old + qty * avg) / (held + qty)
     c["fx"][sym] = held + qty
     c["treasury"] -= cost
-    WORLD["reserve"] += qty * p * config.FX_FEE
-    _impact(sym, qty * p, +1)
+    c.setdefault("fxbuy_ts", {})[sym] = E.now()
+    vols[sym] = vols.get(sym, 0.0) + value
+    WORLD["reserve"] += qty * avg * config.FX_FEE
+    _move(sym, p1)
     prog.bump(c, "fx")
     prog.bump(c, "trade")
     c["st"]["fx_trades"] = c["st"].get("fx_trades", 0) + 1
-    return True, f"{ASSETS[sym]['e']} +{qty:,} {config.sym_name(sym)} @ {p:,.2f} (−{cost:,} سکه)"
+    return True, f"{ASSETS[sym]['e']} +{qty:,} {config.sym_name(sym)} @ {avg:,.2f} (−{cost:,} سکه)"
 
 
 def fx_sell(c, sym, qty):
@@ -256,18 +292,28 @@ def fx_sell(c, sym, qty):
         return False, "؟"
     held = c["fx"].get(sym, 0.0)
     if held + 1e-9 < qty:
-        return False, f"فقط {held:,.0f} {sym} داری"
+        return False, f"فقط {held:,.0f} {config.sym_name(sym)} داری"
     p = fx_price(sym)
-    gain = int(qty * p * (1 - config.FX_FEE))
+    value = qty * p
+    cap = config.FX_TRADE_CAP * config.FX_LIQ
+    if value > cap:
+        return False, f"📊 هر معامله حداکثر {int(cap / p):,} {config.sym_name(sym)} (به قیمت الان)؛ چندتا معامله کن"
+    lo, hi = _band(sym)
+    p1 = max(lo, p * (1 - _slip(value)))
+    avg = (p + p1) / 2
+    quick = E.now() - c.get("fxbuy_ts", {}).get(sym, 0) < config.FX_QUICK_MIN * 60
+    fee = config.FX_FEE + (config.FX_QUICK_FEE if quick else 0.0)          # خرید-فروش سریع (پمپ) کارمزد بیشتر داره
+    gain = int(qty * avg * (1 - fee))
     pl = gain - qty * c["fxcost"].get(sym, 0.0)
     c["fx"][sym] = max(0.0, held - qty)
     c["treasury"] += gain
-    WORLD["reserve"] += qty * p * config.FX_FEE
-    _impact(sym, qty * p, -1)
+    WORLD["reserve"] += qty * avg * fee
+    _move(sym, p1)
     prog.bump(c, "fx")
     prog.bump(c, "trade")
     c["st"]["fx_trades"] = c["st"].get("fx_trades", 0) + 1
-    return True, f"{ASSETS[sym]['e']} −{qty:,} {config.sym_name(sym)} @ {p:,.2f} (+{gain:,} سکه · {'سود' if pl >= 0 else 'زیان'} {abs(pl):,.0f})"
+    return True, (f"{ASSETS[sym]['e']} −{qty:,} {config.sym_name(sym)} @ {avg:,.2f} (+{gain:,} سکه · {'سود' if pl >= 0 else 'زیان'} {abs(pl):,.0f})"
+                  + (f"\n⏱ فروش زودتر از {config.FX_QUICK_MIN} دقیقه بعد از خرید {config.FX_QUICK_FEE * 100:.0f}٪ کارمزد اضافه داره" if quick else ""))
 
 
 def fx_value(c):

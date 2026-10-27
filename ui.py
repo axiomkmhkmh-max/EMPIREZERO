@@ -8,6 +8,7 @@ import db
 import eco
 import engine as E
 import events
+import geo
 import growth
 import prog
 import war
@@ -255,27 +256,38 @@ def s_unrest(c):
 
 def s_policy(c):
     d = E.derive(c)
-    names = {"edu": "🎓 آموزش", "health": "🏥 سلامت", "mil": "🪖 نظامی", "sec": "🚓 امنیت"}
-    t = (f"💸 <b>سیاست و بودجه</b>\nمالیات {n(d['revenue'])} − بودجه {n(d['spend'])} − نگهداری {n(d['upkeep'])} = <b>{d['net']:+,.0f}</b> در ساعت\n"
-         f"💡 مالیات بالا = پول بیشتر، رضایت کمتر · بودجه‌ی کل {sum(c['budget'].values())}٪ از سقف ۷۰٪")
+    cs = d["costs"]
+    base = E.tax_base(c)
+    t = [f"💸 <b>سیاست و بودجه</b>",
+         f"💰 مالیات <b>{n(d['revenue'])}</b> − بودجه <b>{n(d['spend'])}</b> − نگهداری <b>{n(d['upkeep'])}</b> = <b>{d['net']:+,.0f}</b> در ساعت",
+         f"🧾 مالیات = {c['tax']}٪ × پایه‌ی {n(base)} (نصف تولید + {config.TAX_CAPITA} سکه به‌ازای هر نفر): جمعیت بیشتر = درآمد بیشتر حتی با نرخ کم",
+         f"👥 جمعیت {n(c['pop'])} · 🏞 {c.get('land', config.LAND_START)} استان · مجموع بودجه {sum(c['budget'].values())}/{config.BUDGET_CAP} واحد", ""]
     rows = [[("➖", "p:tax:-5"), (f"مالیات {c['tax']}٪", "p:x"), ("➕", "p:tax:5")]]
-    for k, nm in names.items():
-        rows.append([("➖", f"p:bud:{k}:-5"), (f"{nm} {c['budget'][k]}٪", "p:x"), ("➕", f"p:bud:{k}:5")])
-    return t, kb(rows + [BACK])
+    for k, nm in config.BUDGET_NAMES.items():
+        pts = c["budget"].get(k, 0)
+        t.append(f"{nm}: <b>{pts}</b> واحد × {E.budget_unit_cost(c, k):,.1f} = {cs[k]:,.0f}💰/ساعت · هزینه با <b>{config.BUDGET_FACTOR[k]}</b>")
+        rows.append([("➖", f"p:bud:{k}:-5"), (f"{nm} {pts}", "p:x"), ("➕", f"p:bud:{k}:5")])
+    t.append("\n🎓 آموزش→سواد · 🏥 سلامت→رشد جمعیت · 🚓 امنیت→آرامش · 🤲 رفاه→رضایت و کاهش ناآرامی · 🪖 نظامی→روحیه‌ی ارتش · 🛣 زیرساخت→بهره‌وری و سرعت لشکر")
+    t.append("💡 آموزش، سلامت، امنیت و رفاه با جمعیت گرون میشن؛ نظامی و زیرساخت با تعداد استان‌ها (نه جمعیت)")
+    return "\n".join(t), kb(rows + [BACK])
 
 
 def s_units(c):
     cap = E.army_cap(c)
     lines = ["🪖 <b>ارتش</b>", f"ظرفیت: {E.army_size(c)} (+{E.queued_size(c)} در آموزش)/{cap} · ⚙️ {n(c['steel'])} · 💰 {n(c['treasury'])}"]
     lines += [f"🪖 {b['n']:,} {U[b['k']]['n']} · {dur(b['end'] - E.now())}" for b in c["tq"]]
-    lines.append("")
     rows = []
-    for k, u in U.items():
-        lines.append(f"{u['e']} {u['n']}: <b>{c['units'].get(k, 0)}</b> — {u['cost']}💰 {u['steel']}⚙️")
-        q = (50, 500) if k == "inf" else (1, 5)
-        rows.append([(f"{u['e']} +{x}", f"u:buy:{k}:{x}") for x in q])
-    lines.append("\n🚀 موشک ساختمان‌ها رو می‌زنه، 📡 پدافند رهگیری می‌کنه، 🚢 ناو و 🤿 زیردریایی نیروی دریایی‌ان (بندر لازمه)")
-    return "\n".join(lines), kb(rows + [BACK])
+    for br, title in (("land", "🪖 زمینی"), ("air", "✈️ هوایی"), ("sea", "🚢 دریایی")):
+        lines.append(f"\n<b>{title}</b>")
+        for k, u in U.items():
+            if u["br"] != br:
+                continue
+            req = " ".join(f"{B[b]['n']}{lv}" for b, lv in u["req"].items())
+            lines.append(f"{u['e']} {u['n']}: <b>{c['units'].get(k, 0)}</b> — {u['cost']}💰 {u['steel']}⚙️ · 🗡{u['atk']} 🛡{u['dfn']} · ظرفیت {u['size']} · سرعت {u['spd']}x" + (f" · نیاز: {req}" if req else ""))
+            q = (50, 500) if u["cost"] <= 100 else (10, 50) if u["cost"] <= 500 else (1, 5)
+            rows.append([(f"{u['e']} +{x}", f"u:buy:{k}:{x}") for x in q])
+    lines.append("\n🚀 موشک ساختمان‌ها رو می‌زنه، 📡 پدافند رهگیری می‌کنه · 🥷 کماندو سریع، 💣 توپخانه ضدِ پیاده، 🛡 تانک سنگین زره‌دار، 🔱 ناوشکن و 🛳 ناو هواپیمابر ناوگان سنگین، 🛸 پهپاد ارزون و سریع، 🛩 بمب‌افکن ضربه‌ی هوایی")
+    return "\n".join(lines)[:4000], kb(rows + [BACK])
 
 
 def s_upgrade(c):
@@ -518,6 +530,17 @@ async def route(c, p):
                 toast = f"🏦 {amt} سکه به بانک اتحاد رفت"
             else:
                 toast = "ممکن نیست"
+    elif t == "cl":                              # 🏕 استعمار
+        import feats
+        if len(p) > 1 and p[1] == "go":
+            await geo.refresh(need=c["_id"])
+            ok_, msg_ = E.colony_start(c, geo.free_cells())
+            scr = await feats.s_colony(c, msg_)
+        else:
+            scr = await feats.s_colony(c)
+    elif t == "pv":
+        import feats
+        scr = await feats.s_provinces(c)
     if scr is None:
         f = {"b": s_build, "p": s_policy, "u": s_units, "g": s_upgrade, "r": s_research, "t": s_trade,
              "k": s_bank, "x": s_fx, "q": s_missions, "w": s_war, "s": s_spy, "a": s_ally,

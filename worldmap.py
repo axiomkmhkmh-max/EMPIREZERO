@@ -12,9 +12,11 @@ import math
 import random
 from functools import lru_cache
 
+import config
+
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-TIERS = ((34, 22), (46, 30), (60, 38), (80, 50), (110, 66), (150, 90), (200, 120))     # (ستون، ردیف)؛ با رشد بازی نقشه بزرگ‌تر میشه
+TIERS = ((34, 22), (46, 30), (60, 38), (80, 50), (110, 66), (150, 90), (200, 120), (260, 156), (320, 192))     # (ستون، ردیف)؛ با رشد بازی نقشه بزرگ‌تر میشه
 LAND_FRAC = 0.42
 SEED = 6
 CONT_F = 2.2                                            # فرکانس قاره‌ها (بیشتر = قاره‌ی کوچک‌تر و بیشتر)
@@ -22,7 +24,8 @@ WARP = 0.9
 SQ3 = math.sqrt(3)
 TOP_N = 12                                              # این تعداد کشور برتر روی نقشه شماره می‌خورن
 NAME_N = 36                                             # این تعداد کشور برتر اسمشون هم روی نقشه نوشته میشه
-FILL = 2.1                                              # زمین آزاد ≈ ۱۱۰٪ بیشتر از خاک اشغالی؛ نقشه خلوت و بی‌هدف نمیشه
+FILL = config.MAP_FILL                                  # زمین آزاد ≈ ۲٫۲ برابر خاک اشغالی؛ جا برای تازه‌وارد و استعمار
+MIN_TIER = config.MAP_MIN_TIER                          # نقشه هیچ‌وقت از این کوچیک‌تر نمیشه
 
 _EDGE_EVEN = ((1, 0), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1))     # E, SE, SW, W, NW, NE
 _EDGE_ODD = ((1, 0), (1, 1), (0, 1), (-1, 0), (0, -1), (1, -1))
@@ -105,6 +108,88 @@ def _sph(q, r, W, H):
     return c * math.sin(lon), math.sin(lat), c * math.cos(lon), lat
 
 
+def _components(cells, nb, N):
+    """قاره‌ها (کامپوننت‌های همبند خشکی): (خونه→شماره‌ی قاره، فهرست اعضای هر قاره)."""
+    is_land = [False] * N
+    for c in cells:
+        is_land[c] = True
+    comp, groups = {}, []
+    for c in cells:
+        if c in comp:
+            continue
+        cid, members, st = len(groups), [], [c]
+        comp[c] = cid
+        while st:
+            a = st.pop()
+            members.append(a)
+            for b in nb[a]:
+                if b >= 0 and is_land[b] and b not in comp:
+                    comp[b] = cid
+                    st.append(b)
+        groups.append(members)
+    return comp, groups
+
+
+def _capital_points(cells, W, nb, N):
+    """جای پایتخت‌ها به ترتیب ثبت‌نام: از بزرگ‌ترین قاره شروع میشه و از مرکزش به بیرون پر میشه، با فاصله‌ی حداقلی بین پایتخت‌ها
+    (دور اول فاصله‌ی زیاد؛ اگه جا کم بیاد دورهای بعدی با فاصله‌ی کمتر) → از همون اول همسایه داری و نقشه خلوت و بی‌هدف نیست."""
+    comp, groups = _components(cells, nb, N)
+    xy = {c: _xy(c, W) for c in cells}
+    order = sorted(range(len(groups)), key=lambda i: (-len(groups[i]), i))
+    limit = min(len(cells), 1500)
+    pts, taken, grid = [], set(), {}
+    bucket = max(config.MAP_SEP) if config.MAP_SEP else 6.0
+
+    def near(x, y, sep):
+        gx, gy = int(x // bucket), int(y // bucket)
+        for ix in range(gx - 1, gx + 2):
+            for iy in range(gy - 1, gy + 2):
+                for (px, py) in grid.get((ix, iy), ()):
+                    if (px - x) ** 2 + (py - y) ** 2 < sep * sep:
+                        return True
+        return False
+
+    for sep in config.MAP_SEP:
+        for gi in order:
+            mem = groups[gi]
+            mx = sum(xy[c][0] for c in mem) / len(mem)
+            my = sum(xy[c][1] for c in mem) / len(mem)
+            cand = sorted((c for c in mem if c not in taken),
+                          key=lambda c: (math.hypot(xy[c][0] - mx, xy[c][1] - my) + (_hs(c, gi, 7) % 100) / 100 * sep * 0.8, c))
+            for c in cand:
+                if len(pts) >= limit:
+                    return pts
+                x, y = xy[c]
+                if near(x, y, sep):
+                    continue
+                pts.append(c)
+                taken.add(c)
+                grid.setdefault((int(x // bucket), int(y // bucket)), []).append((x, y))
+    for c in cells:                                                          # آخرین پناه: هر خونه‌ی باقی‌مونده
+        if len(pts) >= limit:
+            break
+        if c not in taken:
+            pts.append(c)
+            taken.add(c)
+    return pts
+
+
+@lru_cache(maxsize=8)
+def continents(tier):
+    """(خونه→شماره‌ی قاره) برای اندازه‌ی نقشه‌ی tier؛ برای فاصله و همسایگی."""
+    W, H, nb, cells, pts, elev = make_world(tier)
+    return _components(cells, nb, W * H)[0]
+
+
+def cell_xy(tier, cell):
+    return _xy(cell, TIERS[tier][0])
+
+
+def _hs(a, b, c):
+    """هش ساده و ثابت (بدون random سراسری) برای شکستن مساوی‌ها."""
+    return ((a * 73856093) ^ (b * 19349663) ^ (c * 83492791)) & 0xFFFF
+
+
 @lru_cache(maxsize=8)
 def make_world(tier):
     """(W, H, نقشه‌ی همسایه‌ها، فهرست خونه‌های خشکی، نقطه‌های پایتخت به ترتیب فاصله‌ی حداکثری، ارتفاع 0..1 هر خونه)
@@ -151,22 +236,7 @@ def make_world(tier):
                 for a in comp:
                     land[a] = False
     cells = [i for i in range(N) if land[i]]
-    pts = []
-    if cells:
-        k = min(len(cells), 600)
-        pts = [cells[rnd.randrange(len(cells))]]
-        dist = [math.inf] * len(cells)
-        xy = [_xy(c, W) for c in cells]
-        while len(pts) < k:
-            px, py = _xy(pts[-1], W)
-            best, bi = -1.0, 0
-            for j, (x, y) in enumerate(xy):
-                d = (x - px) ** 2 + (y - py) ** 2
-                if d < dist[j]:
-                    dist[j] = d
-                if dist[j] > best:
-                    best, bi = dist[j], j
-            pts.append(cells[bi])
+    pts = _capital_points(cells, W, nb, N) if cells else []
     fmax = max((f[c] for c in cells), default=thr + 1)
     elev = [0.0] * N
     for c in cells:
@@ -178,16 +248,14 @@ def make_world(tier):
 
 def pick_tier(total_land):
     for t, (W, H) in enumerate(TIERS):
+        if t < MIN_TIER:
+            continue
         if len(make_world(t)[3]) >= total_land * FILL + 30:
             return t
     return len(TIERS) - 1
 
 
 # ------------------------------------------------------------------ مالکیت (رشد از پایتخت)
-def _hs(a, b, c):
-    """هش ساده و ثابت (بدون random سراسری) برای شکستن مساوی‌ها."""
-    return ((a * 73856093) ^ (b * 19349663) ^ (c * 83492791)) & 0xFFFF
-
 def assign(tier, entries):
     """entries = [(cid, seed_idx, quota)] → (own: خونه→اندیس entries یا -1، پایتخت هر ورودی)"""
     W, H, nb, cells, pts, _el = make_world(tier)

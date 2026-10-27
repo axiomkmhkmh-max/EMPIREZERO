@@ -8,6 +8,7 @@ import logging
 import time
 
 import config
+import geo
 import crown
 import db
 import worldmap
@@ -23,19 +24,8 @@ MAP_TTL = 60
 
 
 async def _seeds(ids):
-    """پایتخت هر کشور برای همیشه ثابته (توی دیتابیس نگه‌داری میشه) تا نقشه‌ی بازیکن‌ها جابه‌جا نشه."""
-    doc = await db.META.find_one({"_id": "mapseeds"}) or {}
-    m = dict(doc.get("m", {}))
-    nxt = max([int(v) for v in m.values()] + [-1]) + 1
-    changed = False
-    for cid in ids:
-        if str(cid) not in m:
-            m[str(cid)] = nxt
-            nxt += 1
-            changed = True
-    if changed:
-        await db.META.replace_one({"_id": "mapseeds"}, {"_id": "mapseeds", "m": m}, upsert=True)
-    return {int(k): int(v) for k, v in m.items()}
+    """پایتخت هر کشور برای همیشه ثابته؛ منطقش توی geo.py (مشترک با فاصله و لشکرکشی) تا نقشه و بازی یکی باشن."""
+    return await geo.seeds(ids)
 
 
 async def _layout():

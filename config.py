@@ -33,15 +33,28 @@ B = {
     "palace":     dict(n="کاخ", e="🏰", cost=6000, up=30, jobs=100, en=0, req={}, max=5, d="سقف سطح ساختمان‌ها ↑، فرمان نظامی و کارگاه ساخت بیشتر"),
 }
 
-# cost=سکه steel=فولاد up=نگهداری atk/dfn=قدرت size=ظرفیت پادگان br=شاخه (land/air/sea)
+# cost=سکه steel=فولاد up=نگهداری atk/dfn=قدرت size=ظرفیت پادگان br=شاخه (land/air/sea) t=ثانیه‌ی آموزش هر واحد
+# spd=سرعت نسبی توی لشکرکشی (۱ = معمولی؛ کندترین یگانِ اعزامی سرعت کل لشکر رو تعیین می‌کنه)
 U = {
-    "inf":     dict(n="پیاده‌نظام", e="🪖", cost=30, steel=0, up=0.15, atk=1, dfn=1.2, size=1, br="land", t=5, req={}),
-    "tank":    dict(n="تانک", e="🚜", cost=400, steel=30, up=2, atk=8, dfn=6, size=10, br="land", t=45, req={"factory": 1}),
-    "jet":     dict(n="جنگنده", e="✈️", cost=1000, steel=60, up=5, atk=16, dfn=8, size=20, br="air", t=90, req={"factory": 2}),
-    "missile": dict(n="موشک", e="🚀", cost=1500, steel=80, up=2, atk=0, dfn=0, size=25, br="air", t=100, req={"factory": 3}),
-    "ad":      dict(n="پدافند", e="📡", cost=1200, steel=60, up=3, atk=0, dfn=25, size=15, br="air", t=70, req={"factory": 2}),
-    "ship":    dict(n="ناو", e="🚢", cost=900, steel=50, up=4, atk=12, dfn=10, size=15, br="sea", t=80, req={"port": 1, "factory": 1}),
-    "sub":     dict(n="زیردریایی", e="🤿", cost=1500, steel=70, up=5, atk=22, dfn=6, size=20, br="sea", t=120, req={"port": 2, "factory": 2}),
+    # ---- 🪖 زمینی
+    "inf":     dict(n="پیاده‌نظام", e="🪖", cost=30, steel=0, up=0.15, atk=1, dfn=1.2, size=1, br="land", t=5, spd=1.0, req={}),
+    "cmd":     dict(n="کماندو", e="🥷", cost=90, steel=0, up=0.4, atk=3, dfn=1.6, size=2, br="land", t=12, spd=1.5, req={"barracks": 2}),
+    "tank":    dict(n="تانک", e="🚜", cost=400, steel=30, up=2, atk=8, dfn=6, size=10, br="land", t=45, spd=1.2, req={"factory": 1}),
+    "arty":    dict(n="توپخانه", e="💣", cost=600, steel=40, up=2.5, atk=14, dfn=2, size=12, br="land", t=60, spd=0.6, req={"factory": 2, "barracks": 1}),
+    "htank":   dict(n="تانک سنگین", e="🛡", cost=1100, steel=80, up=4, atk=20, dfn=16, size=20, br="land", t=110, spd=0.8, req={"factory": 3, "barracks": 2}),
+    # ---- ✈️ هوایی
+    "drone":   dict(n="پهپاد", e="🛸", cost=250, steel=15, up=0.8, atk=5, dfn=1, size=3, br="air", t=25, spd=2.2, req={"factory": 2}),
+    "heli":    dict(n="بالگرد", e="🚁", cost=700, steel=45, up=3, atk=12, dfn=6, size=12, br="air", t=60, spd=1.6, req={"factory": 2}),
+    "jet":     dict(n="جنگنده", e="✈️", cost=1000, steel=60, up=5, atk=16, dfn=8, size=20, br="air", t=90, spd=2.4, req={"factory": 2}),
+    "bomber":  dict(n="بمب‌افکن", e="🛩", cost=1700, steel=100, up=6, atk=30, dfn=2, size=25, br="air", t=120, spd=1.8, req={"factory": 3}),
+    "missile": dict(n="موشک", e="🚀", cost=1500, steel=80, up=2, atk=0, dfn=0, size=25, br="air", t=100, spd=3.0, req={"factory": 3}),
+    "ad":      dict(n="پدافند", e="📡", cost=1200, steel=60, up=3, atk=0, dfn=25, size=15, br="air", t=70, spd=1.0, req={"factory": 2}),
+    # ---- 🚢 دریایی
+    "corvette": dict(n="ناوچه", e="⛵", cost=350, steel=20, up=1.2, atk=5, dfn=5, size=6, br="sea", t=35, spd=1.5, req={"port": 1}),
+    "ship":    dict(n="ناو", e="🚢", cost=900, steel=50, up=4, atk=12, dfn=10, size=15, br="sea", t=80, spd=1.0, req={"port": 1, "factory": 1}),
+    "destroyer": dict(n="ناوشکن", e="🔱", cost=1300, steel=70, up=4, atk=17, dfn=16, size=20, br="sea", t=95, spd=1.2, req={"port": 2, "factory": 2}),
+    "sub":     dict(n="زیردریایی", e="🤿", cost=1500, steel=70, up=5, atk=22, dfn=6, size=20, br="sea", t=120, spd=0.9, req={"port": 2, "factory": 2}),
+    "carrier": dict(n="ناو هواپیمابر", e="🛳", cost=4200, steel=180, up=12, atk=28, dfn=20, size=40, br="sea", t=200, spd=0.8, req={"port": 3, "factory": 3}),
 }
 
 # شاخه‌های نظامی و ساختمان لازم برای ارتقا
@@ -95,7 +108,6 @@ LIST_MAX = 10
 
 # --- ارز و توکن
 FX_STEP = 300            # هر ۵ دقیقه یک بروزرسانی قیمت
-FX_LIQ = 400_000
 FX_FEE = 0.01
 ASSETS = {
     "PHX": dict(n="زیرو", e="⚡", p0=100.0, vol=0.040),
@@ -229,3 +241,82 @@ SHOP_STEEL = (100, 500)
 SHOP_OFFER_BONUS = (25, 40)              # درصد بونوس آفرهای روزانه‌ی منابع
 SHOP_OFFER_SHIELD = (20, 30)             # درصد تخفیف آفرهای روزانه‌ی سپر
 SHOP_BUY_GAP = 0.6                       # فاصله‌ی حداقل بین دو خرید یک کاربر (ثانیه)
+
+
+# ================================================================== 💸 اقتصاد: بودجه و مالیات (نسخه‌ی عامل‌محور)
+# مالیات = درصد × (سهم تولید ناخالص + درآمد سرانه‌ی جمعیت)؛ پس هرچی جمعیت بیشتر، حتی با درصد کم، درآمد بیشتر
+TAX_GDP_SHARE = 0.5          # چند درصد از GDP مشمول مالیاته
+TAX_CAPITA = 0.12            # پایه‌ی مالیاتی هر نفر در هر ساعت بازی (سکه)
+# هزینه‌ی هر «واحد بودجه» در هر ساعت بازی = نرخ × عامل. عامل: pop = جمعیت · land = تعداد استان
+BUDGET_COST = {
+    "edu":     ("pop", 0.0007),     # آموزش با جمعیت گرون میشه
+    "health":  ("pop", 0.0008),     # سلامت با جمعیت
+    "sec":     ("pop", 0.0006),     # امنیت با جمعیت
+    "welfare": ("pop", 0.0010),     # رفاه و یارانه با جمعیت
+    "mil":     ("land", 1.6),       # نظامی با پهناوری (استان) نه جمعیت
+    "infra":   ("land", 1.2),       # راه و زیرساخت با پهناوری
+}
+BUDGET_CAP = 70                  # سقف مجموع واحدهای بودجه
+BUDGET_STEP = 5
+BUDGET_NAMES = {"edu": "🎓 آموزش", "health": "🏥 سلامت", "sec": "🚓 امنیت", "welfare": "🤲 رفاه", "mil": "🪖 نظامی", "infra": "🛣 راه و زیرساخت"}
+BUDGET_FACTOR = {"edu": "جمعیت", "health": "جمعیت", "sec": "جمعیت", "welfare": "جمعیت", "mil": "استان‌ها", "infra": "استان‌ها"}
+
+# --- بازار ارز: نقدینگی خیلی بزرگ‌تر + قیمت اجرای میانگین + سقف معامله؛ دیگه با یه خرید بزرگ نمیشه قیمت رو پمپ کرد
+FX_LIQ = 6_000_000
+FX_IMPACT = 0.5
+FX_TRADE_CAP = 0.012              # سقف ارزش یه معامله (کسری از نقدینگی) ≈ ۷۲ هزار سکه
+FX_DAY_CAP = 0.04                 # سقف حجم خرید روزانه‌ی هر بازیکن برای هر ارز (کسری از نقدینگی)
+FX_QUICK_MIN = 30                 # فروش زودتر از این (دقیقه) بعد از خرید کارمزد اضافه داره
+FX_QUICK_FEE = 0.03
+FX_BAND = (0.55, 1.9)             # کف و سقف قیمت نسبت به قیمت پایه (زیرو: ۵۵ تا ۱۹۰ به‌جای ۱۵ تا ۶۰۰)
+FX_VOL_MULT = 0.7                 # نوسان هر تیک (قبلاً ۱٫۰)
+FX_REVERT = 0.05                  # برگشت به قیمت پایه در هر تیک (قبلاً ۰٫۰۳)
+FX_TICK_MAX = 0.07                # بیشترین تغییر قیمت در یه تیک
+
+
+# ================================================================== 🗺 نقشه‌ی بزرگ · 📍 مختصات · 🚢 لشکرکشی · 🏕 استعمار
+MAP_MIN_TIER = 5                  # کوچک‌ترین اندازه‌ی نقشه (150×90 ≈ ۵٬۷۰۰ خونه‌ی خشکی)
+MAP_FILL = 3.2                    # زمین آزاد ≈ ۲٫۲ برابر خاک اشغالی؛ جا برای تازه‌وارد و استعمار
+MAP_SEP = (6.0, 4.0, 2.5, 1.5)    # حداقل فاصله‌ی پایتخت‌ها (به خونه)؛ اگه جا کم بیاد دور بعدی با فاصله‌ی کمتر پر میشه
+
+NEIGHBOR_R = 14                   # کشورهایی که توی این شعاع (خونه) و روی همون قاره‌ان همسایه حساب میشن
+NEIGHBOR_NEAREST = 2              # ... و ۲ کشور نزدیکِ همون قاره تا شعاع دوم (جلوی بن‌بست توی بازی خلوت)
+NEIGHBOR_R2 = 34
+
+# ثانیه به‌ازای هر خونه (پایه؛ تقسیم بر سرعت کندترین یگان)
+MARCH_BASE = {"land": 55, "sea": 40, "air": 22}
+MARCH_MIN_S = 60
+MARCH_MAX_S = 8 * 3600
+# هزینه‌ی حمل‌ونقل: سکه به‌ازای هر واحد ظرفیتِ اعزامی در هر خونه
+TRANSPORT = {"land": 0.015, "sea": 0.025, "air": 0.04}
+TRANSPORT_MULT = 1.0
+# برد: زمینی فقط روی یه قاره (تا این فاصله)؛ دریایی/هوایی = پایه + ضریب × سطح بندر/کارخانه
+RANGE_LAND = 60
+RANGE_SEA = (50, 8)
+RANGE_AIR = (36, 5)
+MARCH_MAX = 3                     # حداکثر لشکرکشی هم‌زمان (به‌علاوه‌ی سطح کاخ ÷ ۲)
+MARCH_SPEED_INFRA = 0.012         # هر واحد بودجه‌ی «راه و زیرساخت» سرعت لشکر رو این‌قدر بیشتر می‌کنه
+MODE_DEF_W = {                    # وزن دفاع هر جبهه‌ی مدافع در برابر هر نوع حمله
+    "all":  {"air": 1.0, "sea": 1.0, "land": 1.0},
+    "land": {"air": 0.55, "sea": 0.15, "land": 1.0},
+    "sea":  {"air": 0.55, "sea": 1.0, "land": 0.30},
+    "air":  {"air": 1.0, "sea": 0.15, "land": 0.25},
+}
+MODE_NAMES = {"all": ("🌐", "همه‌جانبه"), "land": ("🪖", "زمینی"), "sea": ("🚢", "دریایی"), "air": ("✈️", "هوایی")}
+MODE_BRANCHES = {"all": ("land", "sea", "air"), "land": ("land",), "sea": ("sea",), "air": ("air",)}
+
+# --- تسخیر: فقط همسایه‌ها + حفاظت از قربانی (جلوی لخت‌کردن ضعیف‌ترها)
+CONQUEST_MIN_RATIO = 0.4          # هدف تسخیر باید حداقل ۴۰٪ قدرت تو رو داشته باشه (بازیکن)
+CONQUEST_PROTECT_H = 6            # بعد از از دست دادن استان، این‌قدر ساعت از تسخیرِ بعدی در امانه
+CONQUEST_CD_H = 3                 # فاصله‌ی دو تسخیر روی یه هدفِ مشخص (ساعت)
+CONQUEST_LIBERATE = 1.15          # قربانی برای پس‌گرفتن استان با این نسبت قاطع حساب میشه (به‌جای ۱٫۳)
+
+# --- استعمار (آباد کردن زمین خالی)
+COLONY_COST0 = 12000
+COLONY_GROWTH = 1.32              # ضریب هزینه به‌ازای هر استانِ بالای شروع (تا ۱۲ پله)
+COLONY_STEEL0 = 120
+COLONY_FOOD0 = 1500
+COLONY_SECS0 = 8 * 3600
+COLONY_SECS_GROWTH = 1.18
+COLONY_SECS_MAX = 5 * 86400
+COLONY_MIN_PALACE = 2

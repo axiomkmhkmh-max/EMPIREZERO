@@ -8,7 +8,7 @@ import prog
 from config import B, U, TECH, MAX_LEVEL, SHIELD_NEW_H, SHIELD_LOSS_H, BRANCH
 from prog import dur
 
-ATK = ("inf", "tank", "jet", "ship", "sub")
+ATK = tuple(k for k, u in U.items() if u["atk"] > 0)     # همه‌ی یگان‌های تهاجمی (پدافند و موشک جدان)
 
 # ضریب‌های رویداد روی درآمد/پژوهش؛ db.load قبل از هر tick مقدارشون رو (وزنی بر اساس بازه) می‌گذاره
 EV = {"income": 1.0, "research": 1.0}
@@ -26,7 +26,9 @@ def lv(c, k):
 
 
 def army_size(c):
-    return sum(c["units"].get(k, 0) * U[k]["size"] for k in U)
+    """اندازه‌ی کل ارتش؛ یگان‌های توی لشکرکشی هم حساب میشن (وگرنه موقع اعزام می‌شد ظرفیت پادگان رو دور زد)."""
+    away = sum(v * U[k]["size"] for m in c.get("marches", []) for k, v in m["sent"].items() if k in U)
+    return sum(c["units"].get(k, 0) * U[k]["size"] for k in U) + away
 
 
 def defaults(c):
@@ -47,6 +49,10 @@ def defaults(c):
         c["techlv"].setdefault(k, 0)
     for k in U:
         c["units"].setdefault(k, 0)
+    for k in config.BUDGET_COST:                  # بودجه‌های تازه (رفاه، زیرساخت) روی کشورهای قدیمی هم
+        c["budget"].setdefault(k, 0)
+    c.setdefault("marches", [])
+    c.setdefault("colony", [])
     if "palace" not in c["buildings"]:           # کشورهای قدیمی: کاخی که سطح فعلی‌شون رو نگه می‌داره
         mx = max([v for k, v in c["buildings"].items() if k != "palace"] or [0])
         c["buildings"]["palace"] = max(1, math.ceil((mx - 1) / 2))
@@ -105,7 +111,7 @@ def new_country(uid, name, leader, doctrine="bal"):
         "_id": uid, "name": name, "leader": leader, "created": t, "doctrine": doctrine,
         "treasury": 3000.0, "pop": 10000.0, "food": st["food"], "steel": st["steel"],
         "sat": 40.0, "literacy": 20.0, "health": 40.0, "security": 30.0, "weariness": 0.0,
-        "tax": 25, "budget": {"edu": 8, "health": 8, "mil": 2, "sec": 4},
+        "tax": 25, "budget": {"edu": 8, "health": 8, "mil": 2, "sec": 4, "welfare": 0, "infra": 0},
         "buildings": {"farm": 2, "market": 1, "school": 1, "power": 1, "palace": 1},
         "units": {k: (100 if k == "inf" else 0) for k in U},
         "tech": 0.0, "techlv": {k: 0 for k in TECH},
@@ -143,6 +149,28 @@ def capacity(c):
         + 600 * (c.get("land", config.LAND_START) - config.LAND_START)
 
 
+def tax_base(c, gdp=None):
+    """پایه‌ی مالیات = سهمی از تولید + درآمد سرانه‌ی جمعیت (جمعیت بیشتر = مالیات بیشتر حتی با درصد کم)."""
+    g = c.get("gdp", 0.0) if gdp is None else gdp
+    return g * config.TAX_GDP_SHARE + c["pop"] * config.TAX_CAPITA
+
+
+def budget_factor(c, kind):
+    return c["pop"] / 10000.0 if kind == "pop" else float(c.get("land", config.LAND_START))
+
+
+def budget_unit_cost(c, k):
+    """هزینه‌ی هر واحد بودجه‌ی k در ساعت بازی؛ بسته به عامل (جمعیت یا استان)."""
+    kind, rate = config.BUDGET_COST[k]
+    if kind == "pop":
+        return rate * c["pop"]
+    return rate * c.get("land", config.LAND_START)
+
+
+def budget_costs(c):
+    return {k: budget_unit_cost(c, k) * c["budget"].get(k, 0) for k in config.BUDGET_COST}
+
+
 def derive(c):
     jobs = sum(lv(c, k) * b["jobs"] for k, b in B.items())
     workers = max(0.0, c["pop"] * 0.6 - army_size(c))
@@ -157,12 +185,13 @@ def derive(c):
     informal = max(0.0, workers - formal) * 0.3
     gdp = formal * 2.5 * prod + informal * 0.2
     emp = (formal + informal) / workers if workers > 0 else 1.0
-    revenue = gdp * c["tax"] / 100
-    spend = revenue * sum(c["budget"].values()) / 100
+    revenue = tax_base(c, gdp) * c["tax"] / 100
+    costs = budget_costs(c)
+    spend = sum(costs.values())
     upkeep = (sum(lv(c, k) * b["up"] for k, b in B.items())
               + sum(c["units"].get(k, 0) * u["up"] for k, u in U.items()))
     return dict(jobs=jobs, workers=workers, er=er, sup=sup, dem=dem, prod=prod, gdp=gdp, emp=emp,
-                revenue=revenue, spend=spend, upkeep=upkeep, net=revenue - spend - upkeep,
+                revenue=revenue, spend=spend, costs=costs, upkeep=upkeep, net=revenue - spend - upkeep,
                 cap=capacity(c))
 
 
@@ -228,7 +257,7 @@ def unrest_causes(c, d):
         ("😠 نارضایتی عمومی", max(0, 50 - c["sat"]) * 0.5),
         ("🪖 جنگ‌خستگی", min(40, c["weariness"]) * 0.5),
     ]
-    relief = c["security"] * 0.15 + 2 * min(5, c.get("reforms", 0))
+    relief = c["security"] * 0.15 + 2 * min(5, c.get("reforms", 0)) + 0.25 * c["budget"].get("welfare", 0)
     return [(k, v) for k, v in causes if v > 0.5], relief
 
 
@@ -325,7 +354,8 @@ def _step(c, dt):
     tax = c["tax"]
     target = (15 + 28 * d["emp"] + 0.18 * c["health"] + 0.14 * c["literacy"] + 0.14 * c["security"]
               - max(0, tax - 25) * 1.1 + max(0, 25 - tax) * 0.4 - min(40, c["weariness"])
-              - (25 if c["starving"] else 0) - (15 if c["treasury"] < 0 else 0) - c["unrest"] * 0.15)
+              - (25 if c["starving"] else 0) - (15 if c["treasury"] < 0 else 0) - c["unrest"] * 0.15
+              + 0.3 * c["budget"].get("welfare", 0))
     c["sat"] = approach(c["sat"], max(0, min(100, target)), 0.15, dt)
 
     # اثرات مرحله‌ی ناآرامی
@@ -515,19 +545,19 @@ def set_tax(c, d):
 
 
 def set_budget(c, k, d):
-    if k not in c["budget"]:
+    if k not in config.BUDGET_COST:
         return "؟"
-    cur = c["budget"][k]
+    cur = c["budget"].get(k, 0)
     new = max(0, min(40, cur + d))
-    if sum(c["budget"].values()) - cur + new > 70:
-        return "سقف کل بودجه ۷۰٪ است"
+    if sum(c["budget"].values()) - cur + new > config.BUDGET_CAP:
+        return f"سقف کل بودجه {config.BUDGET_CAP} واحده"
     c["budget"][k] = new
-    return f"بودجه {new}٪"
+    return f"{config.BUDGET_NAMES[k]} {new} واحد · {budget_unit_cost(c, k) * new:,.0f} سکه/ساعت"
 
 
 # ---------------------------------------------------------------- نظامی
 def morale(c):
-    return min(1.2, 0.6 + 0.4 * c["sat"] / 100 + min(0.15, c["budget"]["mil"] * 0.005))
+    return min(1.2, 0.6 + 0.4 * c["sat"] / 100 + min(0.15, c["budget"].get("mil", 0) * 0.005))
 
 
 def brm(c, k):
@@ -556,44 +586,55 @@ STANCES = {
     "safe": dict(n="محتاطانه", e="🛡", atk=0.9, loss=0.6, loot=0.8, d="تلفات کمتر، قدرت و غنیمت کمتر"),
 }
 FRONTS = (("air", "✈️", "هوایی"), ("sea", "🚢", "دریایی"), ("land", "🪖", "زمینی"))
-FRONT_OF = {"inf": "land", "tank": "land", "jet": "air", "ad": "air", "ship": "sea", "sub": "sea"}
+FRONT_OF = {k: u["br"] for k, u in U.items()}
+LIGHT, ARMOR = ("inf", "cmd"), ("tank", "htank")                  # پیاده‌های سبک / زره‌پوش‌ها
+SURF = ("ship", "corvette", "destroyer", "carrier")               # ناوهای سطحی (زیردریایی جدا)
 
 
 def _share(u, a, b):
-    """سهم یگان a در مجموع a و b (بر اساس ظرفیت)."""
-    x, y = u.get(a, 0) * U[a]["size"], u.get(b, 0) * U[b]["size"]
+    """سهم گروه a در مجموع گروه‌های a و b (بر اساس ظرفیت). a و b یه کلید یا چندتا کلیدن."""
+    a, b = (a,) if isinstance(a, str) else a, (b,) if isinstance(b, str) else b
+    x, y = sum(u.get(k, 0) * U[k]["size"] for k in a), sum(u.get(k, 0) * U[k]["size"] for k in b)
     return x / (x + y) if x + y > 0 else 0.0
 
 
-def _fronts(att, dfn, sent):
-    """قدرت خام هر جبهه (مهاجم، مدافع) با ضدیت یگان‌ها: تانک>پیاده، زیردریایی>ناو، ناو>زیردریایی."""
+def _fronts(att, dfn, sent, mode="all"):
+    """قدرت خام هر جبهه (مهاجم، مدافع) با ضدیت یگان‌ها: زره>پیاده‌ی سبک، توپخانه>پیاده‌ی سبک، زیردریایی>ناو، ناو>زیردریایی."""
     ua, ud = sent, dfn["units"]
+    tank_a = 1.25 if _share(ud, LIGHT, ARMOR) >= 0.55 else 1.0
+    arty_a = 1.2 if _share(ud, LIGHT, ARMOR) >= 0.55 else 1.0
+    inf_d = 0.85 if _share(ua, ARMOR, LIGHT) >= 0.55 else 1.0
+    sub_a = 1.3 if _share(ud, SURF, "sub") >= 0.55 else 1.0
+    ship_a = 1.2 if _share(ud, "sub", SURF) >= 0.55 else 1.0
+    ship_d = 1.2 if _share(ua, "sub", SURF) >= 0.55 else 1.0
+    sub_d = 1.3 if _share(ua, SURF, "sub") >= 0.55 else 1.0
 
-    def A(k):
-        return ua.get(k, 0) * U[k]["atk"] * brm(att, k)
+    def ma(k):
+        return tank_a if k in ARMOR else arty_a if k == "arty" else sub_a if k == "sub" else ship_a if k in SURF else 1.0
 
-    def D(k):
-        return ud.get(k, 0) * U[k]["dfn"] * brm(dfn, k)
-    tank_a = 1.25 if _share(ud, "inf", "tank") >= 0.55 else 1.0
-    inf_d = 0.85 if _share(ua, "tank", "inf") >= 0.55 else 1.0
-    sub_a = 1.3 if _share(ud, "ship", "sub") >= 0.55 else 1.0
-    ship_a = 1.2 if _share(ud, "sub", "ship") >= 0.55 else 1.0
-    ship_d = 1.2 if _share(ua, "sub", "ship") >= 0.55 else 1.0
-    sub_d = 1.3 if _share(ua, "ship", "sub") >= 0.55 else 1.0
-    return {"air": (A("jet"), D("jet") + D("ad")),
-            "sea": (A("ship") * ship_a + A("sub") * sub_a, D("ship") * ship_d + D("sub") * sub_d),
-            "land": (A("inf") + A("tank") * tank_a, D("inf") * inf_d + D("tank"))}
+    def md(k):
+        return inf_d if k in LIGHT else ship_d if k in SURF else sub_d if k == "sub" else 1.0
+    out = {}
+    for f in ("air", "sea", "land"):
+        a = sum(ua.get(k, 0) * u["atk"] * brm(att, k) * ma(k) for k, u in U.items() if u["br"] == f and u["atk"] > 0)
+        d = sum(ud.get(k, 0) * u["dfn"] * brm(dfn, k) * md(k) for k, u in U.items() if u["br"] == f and u["dfn"] > 0)
+        out[f] = (a, d)
+    return out
 
 
-def calc(att, dfn, frac, stance="bal", support=0.0, rnd=None):
-    """محاسبه‌ی نبرد سه‌جبهه‌ای؛ اول هوا، برنده‌ی آسمون به دریا و زمین بونوس می‌ده."""
+def calc(att, dfn, frac, stance="bal", support=0.0, rnd=None, sent=None, mode="all"):
+    """محاسبه‌ی نبرد سه‌جبهه‌ای؛ اول هوا، برنده‌ی آسمون به دریا و زمین بونوس می‌ده.
+    mode = نوع حمله (all/land/sea/air): دفاع هر جبهه‌ی مدافع به‌اندازه‌ی وزنش (MODE_DEF_W) حساب میشه.
+    sent = یگان‌های اعزامی (لشکرکشی)؛ نباشه frac از ارتش فعلی."""
     st = STANCES.get(stance, STANCES["bal"])
-    sent = {k: int(att["units"].get(k, 0) * frac) for k in ATK}
+    if sent is None:
+        sent = {k: int(att["units"].get(k, 0) * frac) for k in ATK}
+    w = config.MODE_DEF_W.get(mode, config.MODE_DEF_W["all"])
     ga = (1 + 0.08 * att["techlv"]["mil"]) * morale(att) * st["atk"]
     gd = (1 + 0.08 * dfn["techlv"]["def"]) * morale(dfn) * (1 + 0.03 * lv(dfn, "police"))
-    raw = _fronts(att, dfn, sent)
+    raw = _fronts(att, dfn, sent, mode)
     fa = {f: raw[f][0] * ga for f in raw}
-    fd = {f: raw[f][1] * gd for f in raw}
+    fd = {f: raw[f][1] * gd * w[f] for f in raw}
     ra, rd = (rnd(), rnd()) if rnd else (1.0, 1.0)
     air = None
     if fa["air"] > 0 and fa["air"] * ra > fd["air"] * rd:
@@ -605,12 +646,12 @@ def calc(att, dfn, frac, stance="bal", support=0.0, rnd=None):
         fa[f] *= ma
         fd[f] *= md
     fronts = {f: (fa[f], fd[f], None if fa[f] <= 0 else fa[f] * ra > fd[f] * rd) for f in raw}
-    return dict(sent=sent, A=sum(fa.values()) * ra, D=(sum(fd.values()) + support) * rd, fronts=fronts, air=air, st=st)
+    return dict(sent=sent, A=sum(fa.values()) * ra, D=(sum(fd.values()) + support) * rd, fronts=fronts, air=air, st=st, w=w)
 
 
-def estimate(att, dfn, frac, stance="bal", support=0.0):
+def estimate(att, dfn, frac, stance="bal", support=0.0, mode="all", sent=None):
     """(قدرت حمله، قدرت دفاع، شانس پیروزی) بدون تصادف؛ برای نمایش قبل از حمله."""
-    r = calc(att, dfn, frac, stance, support)
+    r = calc(att, dfn, frac, stance, support, None, sent, mode)
     A, D = r["A"], r["D"]
     if A <= 0:
         return 0.0, D, 0.0
@@ -618,10 +659,14 @@ def estimate(att, dfn, frac, stance="bal", support=0.0):
     return A, D, p
 
 
-def battle(att, dfn, frac, support=0.0, stance="bal", loot_mult=1.0):
-    r = calc(att, dfn, frac, stance, support, lambda: random.uniform(0.85, 1.15))
-    sent, A, D, st, fr = r["sent"], r["A"], r["D"], r["st"], r["fronts"]
-    mis = int(att["units"].get("missile", 0) * frac)
+def battle(att, dfn, frac, support=0.0, stance="bal", loot_mult=1.0, sent=None, mode="all", conquest_ratio=None):
+    r = calc(att, dfn, frac, stance, support, lambda: random.uniform(0.85, 1.15), sent, mode)
+    sent, A, D, st, fr, wm = r["sent"], r["A"], r["D"], r["st"], r["fronts"], r["w"]
+    if "missile" in sent or mode == "all" or mode == "air":
+        mis = int(sent["missile"]) if "missile" in sent else int(att["units"].get("missile", 0) * frac)
+    else:
+        mis = 0
+    mis = min(mis, int(att["units"].get("missile", 0)))
     if A <= 0 and mis <= 0:
         return None
     icpt = min(0.9, dfn["units"].get("ad", 0) * 0.04)
@@ -646,6 +691,8 @@ def battle(att, dfn, frac, support=0.0, stance="bal", loot_mult=1.0):
     rec_a, rec_d = min(0.4, 0.10 + 0.03 * lv(att, "hospital")), min(0.4, 0.10 + 0.03 * lv(dfn, "hospital"))
     la, ld, back_a, back_d = {}, {}, 0, 0
     for k in ATK:                      # هر جبهه‌ای که بردی تلفات کمتری می‌دی
+        if not sent.get(k):
+            continue
         w = fr[FRONT_OF[k]][2]
         lost = int(sent[k] * min(0.9, ra * (0.8 if w else 1.25 if w is False else 1.0)))
         b = int(lost * rec_a)
@@ -654,8 +701,9 @@ def battle(att, dfn, frac, support=0.0, stance="bal", loot_mult=1.0):
     for k in U:
         if k == "missile":
             continue
-        w = fr[FRONT_OF[k]][2] if k in FRONT_OF else None
-        lost = int(dfn["units"].get(k, 0) * min(0.9, rd * (1.25 if w else 0.8 if w is False else 1.0)))
+        f = FRONT_OF.get(k)
+        w = fr[f][2] if f in fr else None
+        lost = int(dfn["units"].get(k, 0) * min(0.9, rd * wm.get(f, 1.0) * (1.25 if w else 0.8 if w is False else 1.0)))
         b = int(lost * rec_d)
         dfn["units"][k] = dfn["units"].get(k, 0) - (lost - b)
         ld[k], back_d = lost - b, back_d + b
@@ -684,9 +732,10 @@ def battle(att, dfn, frac, support=0.0, stance="bal", loot_mult=1.0):
         att["losses"] += 1
         dfn["wins"] += 1
     att["weariness"] = min(40.0, att["weariness"] + 6)
+    need = config.CONQUEST_RATIO if conquest_ratio is None else conquest_ratio
     return dict(win=win, A=A, D=D, la=la, ld=ld, loot=loot, destroyed=destroyed, hits=hits, mis=mis, icpt=icpt,
                 fronts=[(e, nm, fr[f][0], fr[f][1], fr[f][2]) for f, e, nm in FRONTS if fr[f][0] > 0 or fr[f][1] > 0],
-                air=r["air"], stance=stance, ratio=ratio, decisive=win and ratio >= config.CONQUEST_RATIO,
+                air=r["air"], stance=stance, ratio=ratio, decisive=win and ratio >= need, mode=mode,
                 back_a=back_a, back_d=back_d)
 
 
@@ -835,6 +884,56 @@ def upgrade(c, br):
     return True, f"⬆️ ارتقای نیروی {nm} {e} به سطح {l + 1} شروع شد؛ {dur(secs)} دیگه"
 
 
+# ---------------------------------------------------------------- 🏕 استعمار (آباد کردن زمین خالی)
+def colony_step(c):
+    """تعداد پله‌ی استعمار: استان‌های بالای شروع + کارهای در حال انجام."""
+    return min(12, max(0, c.get("land", config.LAND_START) - config.LAND_START) + len(c.get("colony", [])))
+
+
+def colony_cost(c):
+    k = colony_step(c)
+    return int(config.COLONY_COST0 * config.COLONY_GROWTH ** k), int(config.COLONY_STEEL0 * (1 + 0.25 * k)), int(config.COLONY_FOOD0 * (1 + 0.25 * k))
+
+
+def colony_secs(c):
+    k = max(0, c.get("land", config.LAND_START) - config.LAND_START) + len(c.get("colony", []))
+    return min(config.COLONY_SECS_MAX, config.COLONY_SECS0 * config.COLONY_SECS_GROWTH ** k) * config.BUILD_TIME_MULT
+
+
+def colony_slots(c):
+    return 1 + (lv(c, "palace") >= 5)
+
+
+def colony_start(c, free_cells):
+    """شروع آباد کردن یه استانِ تازه روی زمین خالیِ نقشه. (موفق؟، پیام)"""
+    c.setdefault("colony", [])
+    if lv(c, "palace") < config.COLONY_MIN_PALACE:
+        return False, f"🏰 برای استعمار باید کاخ حداقل سطح {config.COLONY_MIN_PALACE} باشه"
+    if c.get("land", config.LAND_START) + len(c["colony"]) >= config.LAND_MAX:
+        return False, f"🏞 بیشتر از {config.LAND_MAX} استان نمی‌تونی داشته باشی"
+    if len(c["colony"]) >= colony_slots(c):
+        return False, f"⏳ همین الان {len(c['colony'])} استعمار در حال انجامه (کاخ سطح ۵ ظرفیت دومی میده)"
+    if free_cells < 10:
+        return False, "🗺 زمین خالیِ مناسبی روی نقشه نمونده"
+    coins, steel, food = colony_cost(c)
+    if c["treasury"] < coins:
+        return False, f"💸 استعمار {coins:,} سکه می‌خواد"
+    if c["steel"] < steel:
+        return False, f"⚙️ استعمار {steel:,} فولاد می‌خواد"
+    if c["food"] < food:
+        return False, f"🌾 استعمار {food:,} غذا می‌خواد (برای مهاجران)"
+    c["treasury"] -= coins
+    c["steel"] -= steel
+    c["food"] -= food
+    secs = colony_secs(c)
+    c["colony"].append({"id": _jid(c), "start": now(), "end": now() + secs})
+    prog.bump(c, "build")
+    if secs < 1:
+        settle(c)
+        return True, "🏕 استان جدید همون لحظه آباد شد! 🎉"
+    return True, f"🏕 استعمار شروع شد؛ {dur(secs)} دیگه یه استان تازه به قلمروت اضافه میشه (−{coins:,}💰 −{steel:,}⚙️ −{food:,}🌾)"
+
+
 def settle(c):
     """کارهای تمام‌شده (ساخت، ارتقا، آموزش) رو تحویل می‌ده و رویداد دوگزینه‌ای منقضی رو می‌بنده."""
     if c.get("npc"):
@@ -859,6 +958,15 @@ def settle(c):
             c["units"][b["k"]] = c["units"].get(b["k"], 0) + b["n"]
             msgs.append(f"🪖 {b['n']:,} {U[b['k']]['n']} آماده‌ی نبرد شد")
     c["tq"] = keep
+    keep = []
+    for j in c.get("colony", []):
+        if j["end"] > t:
+            keep.append(j)
+        elif c.get("land", config.LAND_START) < config.LAND_MAX:
+            c["land"] = c.get("land", config.LAND_START) + 1
+            msgs.append(f"🏕 استعمار تموم شد؛ یه استان تازه آباد شد! قلمروت {c['land']} استان 🎉")
+            c.setdefault("news_out", []).append(f"🏕 <b>{c['name']}</b> زمین‌های خالی رو آباد کرد و استان {c['land']}ـمش رو ساخت!")
+    c["colony"] = keep
     d = c.get("dil")
     if d and t - d["ts"] > events.DIL_TTL:
         r = events.resolve(c, "b", auto=True)

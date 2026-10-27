@@ -7,6 +7,7 @@
   🌑 جنگ بزرگ      یه تهدید جهانی با HP مشترک؛ همه با هم می‌زنن و جایزه می‌گیرن.
 """
 import asyncio
+import copy
 import logging
 import math
 import random
@@ -18,11 +19,12 @@ import crown
 import db
 import engine as E
 import events
+import geo
 import prog
 import reg
 import world
 from config import U
-from core import log_exc, notify, tlog
+from core import bot, log_exc, notify, tlog
 from util import BACK, OWNER, bar, esc, kb, n
 
 ATK = E.ATK
@@ -121,11 +123,21 @@ def fog(c, tid, value):
     return value * rnd.uniform(0.7, 1.3)
 
 
-def best_pct(c, t, support=0.0):
+def est_sent(c, t, pct, mode="all", support=0.0, ok=None, stance="bal"):
+    """(قدرت حمله، دفاع، شانس) برای pct٪ ارتش در حالت mode؛ ok = شاخه‌هایی که به مقصد می‌رسن (نباشه همه)."""
+    ok = ok if ok is not None else {"land", "sea", "air"}
+    sent = geo.pick_sent(c, pct, mode, ok)
+    satk = {k: v for k, v in sent.items() if k != "missile"}
+    if not satk:
+        return 0.0, E.defense_power(t), 0.0
+    return E.estimate(c, t, 0, stance, support, mode, satk)
+
+
+def best_pct(c, t, support=0.0, mode="all", ok=None):
     """کمترین درصد ارتش که شانس بردش ≥ ۷۵٪ باشه. برمی‌گردونه (درصد، شانس، لیست [(درصد، شانس)])."""
     res = []
     for p in (30, 40, 50, 60, 70, 80, 90, 100):
-        pr = E.estimate(c, t, p / 100, "bal", support)[2]
+        pr = est_sent(c, t, p, mode, support, ok)[2]
         res.append((p, pr))
         if pr >= 0.75:
             return p, pr, res
@@ -439,129 +451,368 @@ async def boss_hit(c, pct):
     return txt
 
 
-# ------------------------------------------------------------------ حمله به NPC و بازیکن
-async def do_attack(c, tid, pct, stance="bal", conquest=False):
+# ------------------------------------------------------------------ 🧭 لشکرکشی (حمله به NPC و بازیکن)
+# حمله دیگه آنی نیست: لشکر راه میفته، به‌اندازه‌ی فاصله و مقدار و نوع ارتش زمان و هزینه‌ی حمل‌ونقل داره،
+# وسط راه از دفاع خودت کم میشه، و موقع رسیدن نبرد اجرا میشه (loop هر ۱۵ ثانیه). هر نبرد روی «کپی» سند اجرا میشه
+# و فقط اگه کامل تموم شد اعمال میشه → هیچ حالت نصفه‌ای (مثلاً استان از قربانی کم و به مهاجم اضافه نشده) نمی‌مونه.
+def _mode(mode):
+    return mode if mode in config.MODE_BRANCHES else "all"
+
+
+def mode_tag(mode):
+    e, nm = config.MODE_NAMES[_mode(mode)]
+    return f"{e} {nm}"
+
+
+def march_cap(c):
+    return config.MARCH_MAX + E.lv(c, "palace") // 2
+
+
+def launch_cost(plan):
+    return int(plan["size"] * config.LOGI_COIN) + plan["transport"]
+
+
+async def locate(c, tid):
+    """(فاصله به خونه، هم‌قاره؟، همسایه؟) یا None اگه جای کشور روی نقشه معلوم نیست."""
+    await geo.refresh(need=c["_id"])
+    if tid not in geo.CACHE["pos"]:
+        await geo.refresh(force=True)
+    d = geo.dist(c["_id"], tid)
+    if d is None:
+        return None
+    return d, geo.same_continent(c["_id"], tid), geo.is_neighbor(c["_id"], tid)
+
+
+def check_launch(c, plan, orders):
+    if len(c.get("marches", [])) >= march_cap(c):
+        return f"🧭 همین الان {len(c['marches'])} لشکر در راهه (سقف {march_cap(c)}؛ با ارتقای کاخ بیشتر میشه)"
+    if E.orders(c) + 1e-9 < orders:
+        return f"⚡ فرمان کافی نیست ({orders} لازمه)؛ {prog.dur(E.order_wait(c))} دیگه یکی پر میشه"
+    cost = launch_cost(plan)
+    if c["treasury"] < cost:
+        return f"💸 این لشکرکشی {cost:,} سکه هزینه داره (بسیج {int(plan['size'] * config.LOGI_COIN):,} + حمل‌ونقل {plan['transport']:,})"
+    return None
+
+
+async def do_attack(c, tid, pct, stance="bal", conquest=False, mode="all"):
+    """شروع لشکرکشی؛ نتیجه‌ی نبرد وقتی لشکر برسه برات میاد. برمی‌گردونه متن (خطا یا گزارش حرکت)."""
     t = await db.load(tid)
     if not t or t["_id"] == c["_id"]:
         return "هدف پیدا نشد"
     npc = bool(t.get("npc"))
     pct = max(10, min(100, int(pct)))
     stance = stance if stance in E.STANCES else "bal"
-    if conquest and npc and (t.get("land", 0) <= config.LAND_MIN or c["land"] >= config.LAND_MAX):
-        return ("🏞 این NPC دیگه استان اضافه نداره؛ چند ساعت صبر کن تا بازسازی بشه" if t.get("land", 0) <= config.LAND_MIN
-                else f"🏞 بیشتر از {config.LAND_MAX} استان نمی‌تونی داشته باشی")
-    revenge = (not npc) and c["revenge"].get(str(tid), 0) > now()
+    mode = _mode(mode)
+    t0 = now()
+    loc = await locate(c, tid)
+    if not loc:
+        return "🗺 جای این کشور روی نقشه پیدا نشد؛ چند لحظه‌ی دیگه دوباره امتحان کن"
+    d, same, neigh = loc
+    revenge = (not npc) and c["revenge"].get(str(tid), 0) > t0
+    liberate = bool(conquest) and c.get("lost_to", {}).get(str(tid), 0) > 0      # قبلاً ازش استان از دست دادی → آزادسازی
+    if conquest:
+        if mode not in ("all", "land"):
+            return "🏴 تسخیر فقط با نیروی زمینی ممکنه (حالت «همه‌جانبه» یا «زمینی»)"
+        if not neigh:
+            return (f"🏴 تسخیر فقط روی کشورهای <b>همسایه</b> ممکنه؛ «{esc(t['name'])}» {d:.0f} خونه دوره.\n"
+                    "لیست همسایه‌هات: «همسایه‌ها» — حمله‌ی معمولی به کشورهای دور آزاده (با هزینه و زمان بیشتر).")
+        if c.get("land", config.LAND_START) >= config.LAND_MAX:
+            return f"🏞 بیشتر از {config.LAND_MAX} استان نمی‌تونی داشته باشی"
+        if t.get("land", 0) <= config.LAND_MIN:
+            return ("🏞 این NPC دیگه استان اضافه نداره؛ چند ساعت صبر کن تا بازسازی بشه" if npc
+                    else "🏞 این کشور به حداقل استانش رسیده و استانی برای تسخیر نداره")
     if npc:
-        left = config.NPC_CD - (now() - c["npc_cd"].get(str(tid), 0))
+        left = config.NPC_CD - (t0 - c["npc_cd"].get(str(tid), 0))
         if left > 0:
             return f"⏳ ارتش این کشور هنوز بازسازی نشده؛ {int(left // 60) + 1} دقیقه‌ی دیگه"
     else:
-        if t["shield_until"] > now():
+        if t["shield_until"] > t0:
             return "🛡 این کشور سپر داره"
         if c.get("alliance") and t.get("alliance") == c["alliance"]:
             return "🤝 هم‌پیمانته"
         if await world.has_pact(c["_id"], tid):
             return "🕊 با این کشور پیمان عدم‌تجاوز داری"
-        left = config.PVP_CD - (now() - c["pvp_cd"].get(str(tid), 0))
+        left = config.PVP_CD - (t0 - c["pvp_cd"].get(str(tid), 0))
         if left > 0 and not revenge:
             return f"⏳ تازه بهش حمله کردی؛ {prog.dur(left)} دیگه می‌تونی دوباره بزنی"
         if E.score(t) < config.BULLY_RATIO * E.score(c) and not revenge:
             return "🙅 این کشور خیلی ضعیف‌تر از توئه (کمتر از ۲۰٪ قدرتت)؛ حریف هم‌وزن پیدا کن"
-        if conquest and c["land"] >= config.LAND_MAX:
-            return f"🏞 بیشتر از {config.LAND_MAX} استان نمی‌تونی داشته باشی"
+        if conquest and not (revenge or liberate):
+            if E.score(t) < config.CONQUEST_MIN_RATIO * E.score(c):
+                return f"🙅 تسخیر فقط روی حریفی با حداقل {int(config.CONQUEST_MIN_RATIO * 100)}٪ قدرت خودته (جلوی لخت‌کردن ضعیف‌ترها)؛ حمله‌ی معمولی آزاده"
+            if t.get("cq_prot", 0) > t0:
+                return f"🛡 این کشور تازه استان از دست داده؛ {prog.dur(t['cq_prot'] - t0)} دیگه از تسخیر در امانه (حمله‌ی معمولی آزاده)"
+            cl = config.CONQUEST_CD_H * 3600 - (t0 - c.get("cq_cd", {}).get(str(tid), 0))
+            if cl > 0:
+                return f"⏳ تازه روش تسخیر زدی؛ {prog.dur(cl)} دیگه می‌تونی دوباره تسخیر کنی"
+    plan, err = geo.plan(c, pct, mode, d, same)
+    if err:
+        return err
+    if conquest and not any(U[k]["br"] == "land" for k in plan["sent"]):
+        return "🏴 تسخیر نیروی زمینی می‌خواد؛ یگان زمینی (🪖🥷🚜…) نداری یا همه‌شون اعزام نمیشن"
     need = 0 if (revenge and not conquest) else (2 if conquest else 1)
-    err = check_ready(c, pct, need)
+    err = check_launch(c, plan, need)
     if err:
         return err
     if npc:                                   # جلوی خودکشی‌ی بی‌خبر رو می‌گیریم (هیچ فرمان و سکه‌ای خرج نمیشه)
-        pr = E.estimate(c, t, pct / 100, stance)[2]
+        satk = {k: v for k, v in plan["sent"].items() if k != "missile"}
+        pr = E.estimate(c, t, 0, stance, 0.0, mode, satk)[2]
         if pr < 0.08:
-            bp, bpr, _ = best_pct(c, t)
+            bp, bpr, _ = best_pct(c, t, 0.0, mode)
             my, df = E.attack_power(c), E.defense_power(t)
             if bpr >= 0.15 and bp > pct:
                 return (f"⚠️ با {pct}٪ ارتش شانس بردت فقط حدود {int(pr * 100)}٪ هست (حمله {n(my * pct / 100)} در برابر دفاع {n(df)}).\n"
-                        f"با {bp}٪ شانست حدود {int(bpr * 100)}٪ میشه؛ بنویس «حمله {-tid} {bp}» یا از دکمه‌ی 🎯 حمله‌ی هوشمند استفاده کن.")
+                        f"با {bp}٪ شانست حدود {int(bpr * 100)}٪ میشه؛ از دکمه‌ی 🎯 حمله‌ی هوشمند استفاده کن.")
             return (f"⚠️ فعلاً ارتشت برای «{esc(t['name'])}» کمه (حمله‌ی کامل تو {n(my)} در برابر دفاع {n(df)}).\n"
-                    "ارتش/ارتقا رو قوی‌تر کن یا یه NPC ضعیف‌تر (⭐ کمتر) رو بزن؛ برای ضعیف‌ترین NPC هم «کمپین» مرحله‌ی ۱ آسون‌تره.")
+                    "ارتش/ارتقا رو قوی‌تر کن یا یه NPC ضعیف‌تر (⭐ کمتر) رو بزن.")
+    # ---- همه‌ی بررسی‌ها گذشت؛ لشکر راه میفته
     if need:
         E.spend_orders(c, need)
-    c["treasury"] -= logi_cost(c, pct)
-    rel = 1.0 if npc else max(0.3, min(1.6, math.sqrt(E.score(t) / max(1, E.score(c)))))
-    sent = {k: int(c["units"].get(k, 0) * pct / 100) for k in ATK}
-    r = E.battle(c, t, pct / 100, 0.0 if npc else await ally_support(t), stance, rel * (1.25 if revenge else 1.0))
-    if not r:
-        return "🪖 ارتش تهاجمی نداری"
-    extra, crown_def = "", ""
+    cost = launch_cost(plan)
+    c["treasury"] -= cost
+    for k, v in plan["sent"].items():
+        c["units"][k] = c["units"].get(k, 0) - v
+    secs = plan["secs"] if config.BUILD_TIME_MULT > 0 else 0
+    m = dict(id=E._jid(c), tid=tid, name=t["name"], npc=npc, mode=mode, sent=plan["sent"], stance=stance, conquest=bool(conquest),
+             revenge=revenge, liberate=liberate, pct=pct, depart=t0, arrive=t0 + max(secs, 1), dist=round(d, 1), cost=cost, fails=0)
+    c.setdefault("marches", []).append(m)
     prog.bump(c, "attack")
+    if npc:
+        c["npc_cd"][str(tid)] = t0
+    else:
+        c["shield_until"] = 0.0
+        c["pvp_cd"][str(tid)] = t0
+        if revenge:
+            c["revenge"].pop(str(tid), None)
+        if conquest:
+            c.setdefault("cq_cd", {})[str(tid)] = t0
+        tok = OWNER.set(tid)
+        try:
+            mk = kb([[("🧭 وضع من", "w")]])
+        finally:
+            OWNER.reset(tok)
+        await notify(tid, f"🚨 <b>هشدار لشکرکشی!</b>\nارتش {crown.tag(c['_id'])}<b>{esc(c['name'])}</b> ({mode_tag(mode)}) به‌سمت کشورت راه افتاده؛ "
+                          f"{prog.dur(secs)} دیگه می‌رسه." + ("\\n🏴 هدفشون تسخیر استانه!" if conquest else "")
+                     + "\\n💡 تا اون موقع ارتشت رو قوی کن یا هم‌پیمان‌هات رو خبر کن.", mk)
+    drop = ""
+    if plan["dropped"]:
+        drop = "\\n⚠️ شاخه‌ی بی‌برد/نامناسب اعزام نشد: " + "، ".join({"land": "زمینی", "sea": "دریایی", "air": "هوایی"}[b] for b in plan["dropped"])
+    return (f"🧭 <b>لشکرکشی به {esc(t['name'])} شروع شد</b> ({mode_tag(mode)}{' · 🏴 تسخیر' if conquest else ''})\n"
+            f"📍 {d:.0f} خونه · ⏱ {prog.dur(secs)} تا رسیدن\n"
+            f"🪖 اعزامی: {fmt_units(plan['sent'])}\n"
+            f"💰 هزینه: بسیج {int(plan['size'] * config.LOGI_COIN):,} + حمل‌ونقل {plan['transport']:,} = <b>{cost:,}</b>" + drop +
+            "\n🏠 تا رسیدن لشکر، این یگان‌ها از دفاع خودت کم شدن · «لشکرها» برای دیدن و فراخوانی")
+
+
+async def resolve_march(c0, m):
+    """رسیدن یه لشکر. روی کپی کار می‌کنه و فقط با موفقیت کامل روی c0 و هدف اعمال میشه. dict نتیجه برمی‌گردونه."""
+    tid, npc = m["tid"], bool(m.get("npc"))
+    t = await db.load(tid)
+    uid = c0["_id"]
+    if not t:
+        for k, v in m["sent"].items():
+            c0["units"][k] = c0["units"].get(k, 0) + v
+        return dict(uid=uid, txt=f"↩️ لشکرت به «{esc(m.get('name', '?'))}» رسید ولی اون کشور دیگه وجود نداره؛ نیروها برگشتن", frames=None)
+    c = copy.deepcopy(c0)
+    for k, v in m["sent"].items():
+        c["units"][k] = c["units"].get(k, 0) + v
+    mode, stance = _mode(m.get("mode")), m.get("stance", "bal")
+    revenge, conquest = bool(m.get("revenge")), bool(m.get("conquest"))
+    note = ""
+    if conquest and (t.get("land", 0) <= config.LAND_MIN or c.get("land", config.LAND_START) >= config.LAND_MAX):
+        conquest, note = False, "\n🏞 تا رسیدن لشکر شرایط تسخیر از بین رفت؛ فقط حمله‌ی معمولی شد"
+    liberate = conquest and c.get("lost_to", {}).get(str(tid), 0) > 0
+    rel = 1.0 if npc else max(0.3, min(1.6, math.sqrt(E.score(t) / max(1, E.score(c)))))
+    support = 0.0 if npc else await ally_support(t)
+    r = E.battle(c, t, 0.0, support, stance, rel * (1.25 if revenge else 1.0), sent=dict(m["sent"]), mode=mode,
+                 conquest_ratio=config.CONQUEST_LIBERATE if liberate else None)
+    if not r:
+        for k, v in m["sent"].items():
+            c0["units"][k] = c0["units"].get(k, 0) + v
+        return dict(uid=uid, txt="🪖 لشکرت رسید ولی نیروی تهاجمی‌ای توش نبود؛ برگشتن", frames=None)
+    extra, crown_def = note, ""
     if r["win"]:
         prog.bump(c, "win")
+
+    def take_province(who_name):
+        nonlocal extra
+        t["land"] -= 1
+        c["land"] += 1
+        if not npc:
+            t["cq_prot"] = t0 + config.CONQUEST_PROTECT_H * 3600
+            lt = t.setdefault("lost_to", {})
+            lt[str(c["_id"])] = lt.get(str(c["_id"]), 0) + 1
+            mine = c.setdefault("lost_to", {})
+            if mine.get(str(tid), 0) > 0:                      # 🕊 استانِ از دست رفته رو پس گرفتی
+                mine[str(tid)] -= 1
+                if mine[str(tid)] <= 0:
+                    mine.pop(str(tid), None)
+                extra += "\n🕊 <b>آزادسازی!</b> استانِ از دست‌رفته‌ات رو پس گرفتی"
+        extra += f"\n🏴 <b>یه استان از {esc(t['name'])} تسخیر شد!</b> قلمروت {c['land']} استان شد (طرف مقابل: {t['land']})"
+        world.news(f"🏴 <b>{esc(c['name'])}</b> یه استان از <b>{esc(t['name'])}</b> تسخیر کرد!", important=True)
+
+    def conquest_note():
+        nonlocal extra
+        if not conquest:
+            return
+        if not r["win"]:
+            extra += "\n🏴 شکست خوردی؛ استانی تسخیر نشد"
+        else:
+            need_r = config.CONQUEST_LIBERATE if liberate else config.CONQUEST_RATIO
+            extra += f"\n🏴 پیروزی قاطع نبود (نسبت {r['ratio']:.2f}؛ باید ≥ {need_r}) پس استانی تسخیر نشد"
+
+    t0 = now()
     if npc:
-        c["npc_cd"][str(tid)] = now()
         if r["win"]:
             bounty = int(t["bounty"] * events.mult("loot"))
             c["treasury"] += bounty
             c["st"]["npc_wins"] = c["st"].get("npc_wins", 0) + 1
             pts = 4 * t["tier"]
             prog.add(c, "war", pts)
-            extra = f"\n🎖 غرامت جنگی: {n(bounty)} سکه · 🏆 {pts} امتیاز جنگ"
+            extra += f"\n🎖 غرامت جنگی: {n(bounty)} سکه · 🏆 {pts} امتیاز جنگ"
             if random.random() < 0.10 * t["tier"]:
                 c["fx"]["PHX"] = c["fx"].get("PHX", 0) + 1
                 extra += " · +1 ⚡زیرو"
-            if conquest and r["decisive"] and t["land"] > config.LAND_MIN and c["land"] < config.LAND_MAX:
-                t["land"] -= 1
-                c["land"] += 1
-                extra += f"\n🏴 <b>یه استان از {esc(t['name'])} تسخیر شد!</b> قلمروت {c['land']} استان شد (NPC: {t['land']})"
-                world.news(f"🏴 <b>{esc(c['name'])}</b> یه استان از <b>{esc(t['name'])}</b> تسخیر کرد!", important=True)
-            elif conquest:
-                extra += f"\n🏴 پیروزی قاطع نبود (نسبت {r['ratio']:.2f}؛ باید ≥ {config.CONQUEST_RATIO}) پس استانی تسخیر نشد"
+            if conquest and r["decisive"]:
+                take_province(t["name"])
+            else:
+                conquest_note()
+        else:
+            conquest_note()
         log_battle(c, f"🌍 {t['name']}: {'پیروزی' if r['win'] else 'شکست'}")
     else:
-        c["shield_until"] = 0.0
-        c["pvp_cd"][str(tid)] = now()
-        if revenge:
-            c["revenge"].pop(str(tid), None)
         sc_t, sc_c = E.score(t), max(1, E.score(c))
         if r["win"]:
             pts = int(20 * rel * (1.5 if sc_t >= 1.3 * sc_c else 1.0))
             prog.add(c, "war", pts)
-            extra = f"\n🏆 +{pts} امتیاز جنگ"
-            if revenge:
-                extra += " · 💢 انتقام گرفتی!"
-            if conquest and r["decisive"] and t["land"] > config.LAND_MIN and c["land"] < config.LAND_MAX:
-                t["land"] -= 1
-                c["land"] += 1
-                extra += f"\n🏴 <b>یه استان تسخیر شد!</b> قلمروت {c['land']} استان شد (طرف مقابل {t['land']})"
-                world.news(f"🏴 <b>{esc(c['name'])}</b> یه استان از <b>{esc(t['name'])}</b> تسخیر کرد!", important=True)
-            elif conquest:
-                extra += f"\n🏴 پیروزی قاطع نبود (نسبت {r['ratio']:.2f}؛ باید ≥ {config.CONQUEST_RATIO}) پس استانی تسخیر نشد"
+            extra += f"\n🏆 +{pts} امتیاز جنگ" + (" · 💢 انتقام گرفتی!" if revenge else "")
+            if conquest and r["decisive"]:
+                take_province(t["name"])
+            else:
+                conquest_note()
+            import social                                  # (import تنبل؛ social خودش commands رو import می‌کنه)
+            got, btxt = social.claim_bounty(c, t)          # 🎯 سرجایزه
+            if got:
+                extra += btxt
+                world.news(f"🎯 <b>{esc(c['name'])}</b> سرجایزه‌ی <b>{esc(t['name'])}</b> ({n(got)}💰) رو گرفت!")
             if sc_t >= 1.5 * sc_c:
                 world.news(f"⚔️ <b>{esc(c['name'])}</b> کشور قوی‌تر <b>{esc(t['name'])}</b> رو شکست داد!")
             if crown.is_holder(t["_id"]):                   # 👑 امپراتور رو شکست دادی
                 ex_a, crown_def = crown.seize(c, t)
                 extra += ex_a
         else:
-            t_pts = 8
-            prog.add(t, "war", t_pts)
-        t["revenge"][str(c["_id"])] = now() + config.REVENGE_H * 3600
+            conquest_note()
+            prog.add(t, "war", 8)
+        t["revenge"][str(c["_id"])] = t0 + config.REVENGE_H * 3600
         log_battle(c, f"⚔️ حمله به {t['name']}: {'پیروزی' if r['win'] else 'شکست'}")
         log_battle(t, f"🛡 {c['name']} حمله کرد: {'شکست خوردی' if r['win'] else 'دفاع موفق'}")
         tlog("⚔️", "حمله‌ی بازیکن", f"{esc(c['name'])} → {esc(t['name'])} · {'🏆 پیروزی' if r['win'] else '💀 شکست'}"
-             + (" · 🏴 تسخیر" if conquest else ""))
-    await db.save(t)
+             + (" · 🏴 تسخیر" if conquest else "") + f" · {mode_tag(mode)} · {m.get('dist', 0):.0f} خونه")
     an, dn = crown.tag(c["_id"]) + c["name"], crown.tag(t["_id"]) + t["name"]
-    txt = report(r, an, dn) + extra
-    cine.stash(c["_id"], cine.battle_frames(r, an, dn))
-    cine.record(c["_id"], dict(kind="npc" if npc else "pvp", an=c["name"], dn=t["name"], ae=c.get("emblem", "🏛"), de=t.get("emblem", "🏛"),
-                               sent=sent, extra=extra, conquest=bool(conquest), pct=pct, crown=bool(crown_def), **_raw(r)))
+    head = f"🧭 <b>لشکر {mode_tag(mode)} به {esc(t['name'])} رسید</b>\n"
+    txt = head + report(r, an, dn) + extra
+    # ---- موفق: اعمال روی سند اصلی و ذخیره‌ی هدف
+    c0.clear()
+    c0.update(c)
+    await db.save(t)
+    res = dict(uid=uid, txt=txt, frames=cine.battle_frames(r, an, dn), target=None)
     if not npc:
         tok = OWNER.set(tid)
         try:
-            mk = kb([[("💢 انتقام", f"w:pick:{c['_id']}")]])
+            mk = kb([[("💢 انتقام", f"w:pick:{uid}")]])
         finally:
             OWNER.reset(tok)
-        await notify(tid, "🚨 <b>به کشورت حمله شد!</b>\n" + report(r, an, dn)
-                     + f"\n\n💢 {config.REVENGE_H} ساعت فرصت داری انتقام بگیری (فرمان نمی‌خواد و غنیمت ۲۵٪ بیشتره)" + crown_def, mk)
-    return txt
+        res["target"] = (tid, "🚨 <b>به کشورت حمله شد!</b>\n" + report(r, an, dn)
+                         + f"\n\n💢 {config.REVENGE_H} ساعت فرصت داری انتقام بگیری (فرمان نمی‌خواد و غنیمت ۲۵٪ بیشتره)" + crown_def
+                         + ("\n🕊 اگه همین حالا ضدحمله‌ی قاطع بزنی «آزادسازی» حساب میشه (شرط قاطع‌بودن آسون‌تره)" if conquest and r["win"] and r["decisive"] else ""), mk)
+    return res
+
+
+async def deliver(res):
+    """گزارش نبرد برای مهاجم (با انیمیشن) و هشدار برای مدافع؛ بیرون از قفل."""
+    uid = res["uid"]
+    tok = OWNER.set(uid)
+    try:
+        mk = kb([[("🎯 هدف دیگه", "w:t")], [("⚔️ جنگ", "w")], BACK])
+    finally:
+        OWNER.reset(tok)
+    try:
+        fr = res.get("frames")
+        if fr:
+            msg = await bot.send_message(uid, fr[0])
+            await cine.play(msg, fr[1:], res["txt"], mk)
+        else:
+            await notify(uid, res["txt"], mk)
+    except Exception:
+        log_exc("march deliver")
+        await notify(uid, res["txt"], mk)
+    if res.get("target"):
+        await notify(*res["target"])
+
+
+async def march_tick():
+    """لشکرهایی که رسیدن رو اجرا می‌کنه. هر نبرد زیر قفلِ همون کشور؛ تحویل گزارش بیرون از قفل."""
+    t0 = now()
+    due = [d["_id"] async for d in db.C.find({"marches.arrive": {"$lte": t0}}, {"_id": 1})]
+    out = []
+    for uid in due:
+        async with db.LOCK:
+            c = await db.load(uid)
+            if not c:
+                continue
+            for m in [x for x in c.get("marches", []) if x["arrive"] <= t0]:
+                try:
+                    res = await resolve_march(c, m)
+                    c["marches"] = [x for x in c["marches"] if x["id"] != m["id"]]
+                    out.append(res)
+                except Exception:
+                    log_exc(f"march {m.get('id')}")
+                    m["fails"] = m.get("fails", 0) + 1
+                    if m["fails"] >= 3:                  # خرابیِ مداوم → لشکر برمی‌گرده تا چیزی گیر نکنه
+                        for k, v in m["sent"].items():
+                            c["units"][k] = c["units"].get(k, 0) + v
+                        c["marches"] = [x for x in c["marches"] if x["id"] != m["id"]]
+                        out.append(dict(uid=uid, txt="⚠️ لشکرت به‌خاطر یه خطای فنی برگشت؛ نیروها سالم برگشتن", frames=None))
+            await db.save(c)
+    for res in out:
+        await deliver(res)
+
+
+async def march_loop():
+    while True:
+        await asyncio.sleep(15)
+        try:
+            await march_tick()
+        except Exception:
+            log_exc("march_loop")
+
+
+def recall(c, mid):
+    """فراخوانی لشکر وسط راه: نیروها برمی‌گردن ولی هزینه‌ی حمل‌ونقل پس داده نمیشه."""
+    m = next((x for x in c.get("marches", []) if str(x["id"]) == str(mid)), None)
+    if not m:
+        return "این لشکر دیگه نیست (شاید رسیده)"
+    if now() >= m["arrive"]:
+        return "لشکر همین الان رسیده؛ دیگه نمیشه فراخوند"
+    for k, v in m["sent"].items():
+        c["units"][k] = c["units"].get(k, 0) + v
+    c["marches"] = [x for x in c["marches"] if x is not m]
+    return f"↩️ لشکر به «{esc(m['name'])}» فراخونده شد؛ نیروها برگشتن (هزینه‌ی حمل‌ونقل پس داده نمیشه)"
+
+
+def s_marches(c):
+    ms = c.get("marches", [])
+    t = [f"🧭 <b>لشکرها</b> ({len(ms)}/{march_cap(c)})"]
+    rows = []
+    if not ms:
+        t.append("\nالان لشکری در راه نیست. از «جنگ ← هدف» لشکرکشی کن.")
+    for m in ms:
+        left = m["arrive"] - now()
+        t.append(f"\n{mode_tag(m['mode'])}{' 🏴' if m.get('conquest') else ''} → <b>{esc(m['name'])}</b> · 📍 {m['dist']:.0f} خونه · ⏱ {prog.dur(left)} دیگه\n"
+                 f"   🪖 {fmt_units(m['sent'])}")
+        rows.append([(f"↩️ فراخوانی · {m['name'][:16]}", f"w:rc:{m['id']}")])
+    t.append("\n💡 زمان و هزینه به فاصله، مقدار و نوع ارتش بستگی داره؛ زمینی فقط روی یه قاره، دریایی با بندر، هوایی با کارخانه‌ی قوی‌تر بُرد بیشتر میشن.")
+    return "\n".join(t), kb(rows + [[("⚔️ جنگ", "w")], BACK])
 
 
 # ------------------------------------------------------------------ صفحه‌ها
@@ -574,6 +825,11 @@ def s_war(c):
          f"🏆 امتیاز جنگ این هفته: {n(prog.stat(c, 'w', 'war'))} · ⚔️ {c['wins']}/{c['losses']}"]
     if sh > 0:
         t.append(f"🛡 سپر فعال ({sh / 3600:.1f}h) — حمله به بازیکن سپرت رو می‌شکنه")
+    if c.get("marches"):
+        nxt = min(m["arrive"] for m in c["marches"]) - now()
+        t.append(f"🧭 {len(c['marches'])} لشکر در راهه (اولی {prog.dur(nxt)} دیگه می‌رسه)")
+    if c.get("colony"):
+        t.append(f"🏕 {len(c['colony'])} استعمار در حال انجام")
     live = [k for k, v in c["revenge"].items() if v > now()]
     if live:
         t.append(f"💢 {len(live)} نفر بهت حمله کردن و فرصت انتقام داری")
@@ -587,6 +843,7 @@ def s_war(c):
     if boss_active():
         rows.append([(f"🌑 جنگ بزرگ · {BOSS['name']}", "w:boss")])
     rows += [[("🎯 جنگ با بازیکن‌ها", "w:t"), ("🌍 NPCها", "w:npc")],
+             [(f"🧭 لشکرها ({len(c.get('marches', []))})", "w:mar"), ("🤝 همسایه‌ها", "w:nb")],
              [("🕵️ جاسوسی", "s"), ("📜 گزارش نبردها", "w:log")]]
     return "\n".join(t), kb(rows + [BACK])
 
@@ -596,19 +853,31 @@ def s_log(c):
     return t, kb([[("⚔️ جنگ", "w")], BACK])
 
 
-def npc_lines(docs):
-    return [f"{-d['_id']}. {esc(d['name'])} · {'⭐' * d['tier']} · دفاع ~{n(E.defense_power(d))} · جایزه {n(d['bounty'])}💰" for d in docs]
+def _dist_tag(c, tid):
+    """«📍۱۸🤝» برای فاصله‌ی من تا کشور tid (اگه موقعیت‌ها توی کش باشن)."""
+    if c is None:
+        return ""
+    d = geo.dist(c["_id"], tid)
+    if d is None:
+        return ""
+    return f" · 📍{d:.0f}" + ("🤝" if geo.is_neighbor(c["_id"], tid) else "")
+
+
+def npc_lines(docs, c=None):
+    return [f"{-d['_id']}. {esc(d['name'])} · {'⭐' * d['tier']} · دفاع ~{n(E.defense_power(d))} · جایزه {n(d['bounty'])}💰{_dist_tag(c, d['_id'])}" for d in docs]
 
 
 async def s_npcs(c):
+    await geo.refresh(need=c["_id"])
     npcs = await db.C.find({"npc": True, "_id": {"$gt": -100}}).sort("_id", -1).to_list(20)
-    t = ["🌍 <b>کشورهای جهان (NPC)</b> — حریف‌های آموزشی؛ برای جنگ بی‌پایان به «کمپین» برو"] + npc_lines(npcs)
+    t = ["🌍 <b>کشورهای جهان (NPC)</b> — حریف‌های آموزشی (📍 فاصله · 🤝 همسایه)؛ برای جنگ بی‌پایان به «کمپین» برو"] + npc_lines(npcs, c)
     rows = [[(f"🌍 {d['name'][:14]} {'⭐' * d['tier']}", f"w:pick:{d['_id']}")] for d in npcs]
     return "\n".join(t), kb(rows + [[("⚔️ جنگ", "w")], BACK])
 
 
 async def s_targets(c):
     t0 = now()
+    await geo.refresh(need=c["_id"])
     banned = {d["_id"] async for d in db.BANS.find({}, {"_id": 1})}
     pacts = set()
     async for p in db.PACTS.find({"kind": "pact", "status": "active", "end": {"$gt": t0}, "$or": [{"a": c["_id"]}, {"b": c["_id"]}]}):
@@ -635,14 +904,14 @@ async def s_targets(c):
         if d["shield_until"] > t0:
             shielded.append((d["shield_until"] - t0, d, sc))
             continue
-        cand.append((0 if rev else 1, abs(math.log(max(sc, 1) / mine)), d, sc, rev))
+        cand.append((0 if rev else 1, abs(math.log(max(sc, 1) / mine)) + 0.012 * (geo.dist(c["_id"], d["_id"]) or 0), d, sc, rev))
     cand.sort(key=lambda x: (x[0], x[1]))
-    t = ["🎯 <b>هدف‌های بازیکن</b> (به قدرت تو نزدیک‌ترها)", orders_line(c), "⭐ = ارزش جایزه · 💢 = فرصت انتقام", f"👥 {total} بازیکن دیگه توی جهانن", ""]
+    t = ["🎯 <b>هدف‌های بازیکن</b> (به قدرت تو نزدیک‌ترها)", orders_line(c), "⭐ = ارزش جایزه · 💢 = فرصت انتقام · 📍 فاصله (خونه) · 🤝 همسایه", f"👥 {total} بازیکن دیگه توی جهانن", ""]
     rows = []
     for _, _, d, sc, rev in cand[:6]:
         stars = "⭐⭐⭐" if sc >= 1.3 * mine else "⭐⭐" if sc >= 0.7 * mine else "⭐"
         view, exact = def_view(c, d)
-        t.append(f"{'💢' if rev else '•'} {d.get('emblem', '🏛')} {esc(d['name'])} · 🛡 {view} · 🏞 {d.get('land', 5)} · {stars}")
+        t.append(f"{'💢' if rev else '•'} {d.get('emblem', '🏛')} {esc(d['name'])} · 🛡 {view} · 🏞 {d.get('land', 5)} · {stars}{_dist_tag(c, d['_id'])}")
         rows.append([(f"{'💢 ' if rev else ''}{d['name'][:18]} {stars}", f"w:pick:{d['_id']}")])
     if shielded:
         shielded.sort(key=lambda x: x[0])
@@ -669,22 +938,49 @@ async def s_targets(c):
     return "\n".join(t), kb(rows + [[("⚔️ جنگ", "w")], BACK])
 
 
-async def s_pick(c, tid):
+def _mode_row(c, d, same, md, pct=60):
+    """یه خط خلاصه برای هر نوع حمله: زمان و هزینه یا دلیل نشدن."""
+    br = config.MODE_BRANCHES[md]
+    rg = geo.ranges(c)
+    if md != "all":
+        b0 = br[0]
+        if b0 == "land" and not same:
+            return f"{mode_tag(md)}: ✖ قاره‌ی دیگه"
+        if d > rg[b0]:
+            return f"{mode_tag(md)}: ✖ بُرد {rg[b0]} خونه"
+    plan, err = geo.plan(c, pct, md, d, same)
+    if not plan:
+        return f"{mode_tag(md)}: ✖ یگان نداری"
+    return f"{mode_tag(md)}: ⏱ {prog.dur(plan['secs'])} · 💰 {launch_cost(plan):,}"
+
+
+async def s_pick(c, tid, mode="all"):
     t = await db.load(tid)
     if not t:
         return "هدف پیدا نشد", kb([BACK])
+    mode = _mode(mode)
     npc = bool(t.get("npc"))
     view, exact = def_view(c, t)
     rev = (not npc) and c["revenge"].get(str(tid), 0) > now()
-    lines = [f"🎯 <b>{esc(t['name'])}</b> {t.get('emblem', '')}" + (f" · {'⭐' * t['tier']}" if npc else f" · 🏞 {t.get('land', 5)} استان"),
-             f"🛡 دفاع: <b>{view}</b>" + (" ✅ دقیق (جاسوسی)" if exact else " — برای عدد دقیق جاسوسی کن"),
-             f"🗡 قدرت تو: {n(E.attack_power(c))} · {orders_line(c)}"]
+    loc = await locate(c, tid)
+    lines = [f"🎯 <b>{esc(t['name'])}</b> {t.get('emblem', '')}" + (f" · {'⭐' * t['tier']}" if npc else f" · 🏞 {t.get('land', 5)} استان")]
+    ok = None
+    if loc:
+        d, same, neigh = loc
+        ok = geo.reachable(c, d, same)
+        lines.append(f"📍 {d:.0f} خونه · {'🤝 همسایه (تسخیر ممکنه)' if neigh else '🌐 دور (فقط حمله‌ی معمولی)'} · {'همین قاره' if same else '🌊 قاره‌ی دیگه'}")
+    lines += [f"🛡 دفاع: <b>{view}</b>" + (" ✅ دقیق (جاسوسی)" if exact else " — برای عدد دقیق جاسوسی کن"),
+              f"🗡 قدرت تو: {n(E.attack_power(c))} · {orders_line(c)}"]
+    if loc:
+        lines.append("\n🧭 <b>انواع حمله</b> (۶۰٪ ارتش):")
+        lines += [_mode_row(c, d, same, md) for md in ("all", "land", "sea", "air")]
+        lines.append(f"انتخاب فعلی: <b>{mode_tag(mode)}</b>")
     if exact:
         sup = 0.0 if npc else await ally_support(t)
-        ch = {pp: E.estimate(c, t, pp / 100, "bal", sup)[2] for pp in (30, 60, 100)}
+        ch = {pp: est_sent(c, t, pp, mode, sup, ok)[2] for pp in (30, 60, 100)}
         lines.append("🎲 شانس پیروزی: " + " · ".join(f"{pp}٪ ارتش ← ~{int(v * 100)}٪" for pp, v in ch.items()) + f" {difficulty(ch[100])}")
-        bp, bpr, _ = best_pct(c, t, sup)
-        lines.append(f"🎯 پیشنهاد: {bp}٪ ارتش (شانس ~{int(bpr * 100)}٪)" if bpr >= 0.5 else "🎯 با ارتش فعلی‌ات این حریف سخته؛ اول تقویت شو")
+        bp, bpr, _ = best_pct(c, t, sup, mode, ok)
+        lines.append(f"🎯 پیشنهاد: {bp}٪ ارتش (شانس ~{int(bpr * 100)}٪)" if bpr >= 0.5 else "🎯 با این نوع حمله و ارتش فعلی‌ات این حریف سخته؛ اول تقویت شو یا نوع دیگه‌ای بزن")
         if npc:
             u = " ".join(f"{U[k]['e']}{v}" for k, v in t["units"].items() if v)
             lines.append(f"🪖 {u or '—'} · غرامت برد: {n(t['bounty'])}💰")
@@ -695,16 +991,43 @@ async def s_pick(c, tid):
                 lines.append(f"🪖 {u or '—'} · غنیمت ≈ ۱۲٪ از {n(max(0, i['treasury']))}💰")
     if crown.is_holder(tid):
         lines.append(f"👑 <b>امپراتور جهانه!</b> اگه ببریش تاج و {n(config.CROWN_BOUNTY)}💰 جایزه مال توئه")
-    lines.append(f"🪖 بسیج ۶۰٪ ارتش ≈ {n(logi_cost(c, 60))}💰")
     if rev:
         lines.append("💢 فرصت انتقام داری: بدون فرمان و با غنیمت ۲۵٪ بیشتر")
-    lines.append(f"🏴 «تسخیر» ۲ فرمان می‌خواد؛ با پیروزی قاطع (نسبت ≥ {config.CONQUEST_RATIO}) یه استان می‌گیری"
-                 + (f" · 🏞 این NPC الان {t.get('land', 5)} استان داره و کم‌کم بازسازی میشه" if npc else ""))
+    lines.append("⚙️ دفاع مدافع به نوع حمله بستگی داره: زمینی بیشتر با ارتش زمینی‌ش می‌جنگی، هوایی با پدافند و جنگنده، دریایی با ناوگان")
+    if loc and neigh:
+        lines.append(f"🏴 «تسخیر» ۲ فرمان می‌خواد؛ پیروزی قاطع (نسبت ≥ {config.CONQUEST_RATIO}) یه استان می‌گیری"
+                     + (f" · 🏞 این NPC الان {t.get('land', 5)} استان داره" if npc else ""))
     lines += ["", STANCE_LEGEND]
-    rows = ([[("🎯 حمله‌ی هوشمند (کمترین ارتشِ لازم)", f"w:auto:{tid}")]] if exact else []) + stance_rows(lambda p, s: f"w:go:{tid}:{p}:{s}")
-    rows.append([("🏴 تسخیر ۶۰٪", f"w:cq:{tid}:60"), ("🏴 تسخیر ۱۰۰٪", f"w:cq:{tid}:100")])
-    rows.append([(f"🕵️ جاسوسی · ۵۰۰", f"w:spy:{tid}"), ("🔙", "w:npc" if npc else "w:t")])
+    modes = [[((("✅ " if md == mode else "") + mode_tag(md)), f"w:pick:{tid}:{md}") for md in ("all", "land", "sea", "air")]]
+    rows = modes + ([[("🎯 حمله‌ی هوشمند (کمترین ارتشِ لازم)", f"w:auto:{tid}:{mode}")]] if exact else []) \
+        + stance_rows(lambda p, s: f"w:go:{tid}:{p}:{s}:{mode}")
+    if loc and neigh and mode in ("all", "land"):
+        rows.append([("🏴 تسخیر ۶۰٪", f"w:cq:{tid}:60:{mode}"), ("🏴 تسخیر ۱۰۰٪", f"w:cq:{tid}:100:{mode}")])
+    rows.append([("🕵️ جاسوسی · ۵۰۰", f"w:spy:{tid}"), ("🔙", "w:npc" if npc else "w:t")])
     return "\n".join(lines), kb(rows)
+
+
+async def s_neighbors(c):
+    await geo.refresh(need=c["_id"])
+    nb = geo.neighbors(c["_id"])
+    ids = sorted(nb, key=nb.get)[:12]
+    docs = {d["_id"]: d async for d in db.C.find({"_id": {"$in": ids}})}
+    me = geo.CACHE["pos"].get(c["_id"])
+    t = ["🤝 <b>همسایه‌های من</b> — «تسخیر» فقط روی این کشورها ممکنه",
+         f"📍 پایتخت تو روی نقشه ثبت شده · {len(nb)} همسایه" if me else "📍 هنوز روی نقشه جاگذاری نشدی", ""]
+    rows = []
+    for tid in ids:
+        d = docs.get(tid)
+        if not d:
+            continue
+        E.defaults(d)
+        sh = " 🛡" if d["shield_until"] > now() else ""
+        t.append(f"• {d.get('emblem', '🏛')} {esc(d['name'])}{' 🤖' if d.get('npc') else ''} · 📍{nb[tid]:.0f} · 🏞 {d.get('land', 5)} · 🛡 {def_view(c, d)[0]}{sh}")
+        rows.append([(f"{d['name'][:20]} · 📍{nb[tid]:.0f}", f"w:pick:{tid}")])
+    if not ids:
+        t.append("هنوز همسایه‌ای نداری؛ با ثبت‌نام بازیکن‌های بیشتر یا آباد کردن زمین‌های خالی (استعمار) نقشه شلوغ‌تر میشه.")
+    t.append("\n🌐 به کشورهای دور هم می‌تونی حمله‌ی معمولی بزنی (زمان و هزینه‌ی حمل‌ونقل بیشتر).")
+    return "\n".join(t), kb(rows + [[("⚔️ جنگ", "w")], BACK])
 
 
 # ------------------------------------------------------------------ مسیریابی دکمه‌ها
@@ -720,9 +1043,17 @@ async def route(c, p):
     sub = p[1] if len(p) > 1 else ""
     after = kb([[("🎯 هدف دیگه", "w:t")], [("⚔️ جنگ", "w")], BACK])
     if sub == "pick" and len(p) > 2:
-        return None, await s_pick(c, _i(p, 2))
+        return None, await s_pick(c, _i(p, 2), p[3] if len(p) > 3 else "all")
     if sub == "go" and len(p) > 3:
-        return None, (await do_attack(c, _i(p, 2), _i(p, 3, 60), p[4] if len(p) > 4 else "bal"), after)
+        return None, (await do_attack(c, _i(p, 2), _i(p, 3, 60), p[4] if len(p) > 4 else "bal", False, p[5] if len(p) > 5 else "all"), after)
+    if sub == "mar":
+        return None, s_marches(c)
+    if sub == "rc" and len(p) > 2:
+        txt = recall(c, p[2])
+        text, mk = s_marches(c)
+        return None, (txt + "\n\n" + text, mk)
+    if sub == "nb":
+        return None, await s_neighbors(c)
     if sub == "auto" and len(p) > 2:
         tid = _i(p, 2)
         t = await db.load(tid)
@@ -730,10 +1061,13 @@ async def route(c, p):
             return None, ("هدف پیدا نشد", after)
         if not t.get("npc") and not intel_of(c, tid):
             return None, ("🕵️ حمله‌ی هوشمند عدد دقیق دفاع رو لازم داره؛ اول «جاسوسی» کن", after)
-        bp, bpr, _ = best_pct(c, t, 0.0 if t.get("npc") else await ally_support(t))
-        return None, (await do_attack(c, tid, bp, "bal"), after)
+        md = _mode(p[3] if len(p) > 3 else "all")
+        loc = await locate(c, tid)
+        ok = geo.reachable(c, loc[0], loc[1]) if loc else None
+        bp, bpr, _ = best_pct(c, t, 0.0 if t.get("npc") else await ally_support(t), md, ok)
+        return None, (await do_attack(c, tid, bp, "bal", False, md), after)
     if sub == "cq" and len(p) > 3:
-        return None, (await do_attack(c, _i(p, 2), _i(p, 3, 60), "bal", True), after)
+        return None, (await do_attack(c, _i(p, 2), _i(p, 3, 60), "bal", True, p[4] if len(p) > 4 else "all"), after)
     if sub == "spy" and len(p) > 2:
         txt = await do_spy(c, _i(p, 2), "scout")
         text, mk = await s_pick(c, _i(p, 2))

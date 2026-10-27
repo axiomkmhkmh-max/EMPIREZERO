@@ -52,6 +52,11 @@ async def load(uid):
         dirty = True
     if engine.settle(c):          # ساخت/آموزش تمام‌شده و رویدادهای منقضی
         dirty = True
+    if c.get("news_out"):         # خبرهای جهانی که settle ساخته (مثلاً تموم شدن استعمار)
+        import world
+        for tx in c.pop("news_out"):
+            world.news(tx)
+        dirty = True
     if dirty:
         await save(c)
     return c
