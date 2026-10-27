@@ -456,12 +456,11 @@ async def boss_hit(c, pct):
 # وسط راه از دفاع خودت کم میشه، و موقع رسیدن نبرد اجرا میشه (loop هر ۱۵ ثانیه). هر نبرد روی «کپی» سند اجرا میشه
 # و فقط اگه کامل تموم شد اعمال میشه → هیچ حالت نصفه‌ای (مثلاً استان از قربانی کم و به مهاجم اضافه نشده) نمی‌مونه.
 def _mode(mode):
-    return mode if mode in config.MODE_BRANCHES else "all"
+    return config.norm_mode(mode)
 
 
 def mode_tag(mode):
-    e, nm = config.MODE_NAMES[_mode(mode)]
-    return f"{e} {nm}"
+    return config.mode_title(mode)
 
 
 def march_cap(c):
@@ -511,13 +510,13 @@ async def do_attack(c, tid, pct, stance="bal", conquest=False, mode="all"):
     revenge = (not npc) and c["revenge"].get(str(tid), 0) > t0
     liberate = bool(conquest) and c.get("lost_to", {}).get(str(tid), 0) > 0      # قبلاً ازش استان از دست دادی → آزادسازی
     if conquest:
-        if mode not in ("all", "land"):
-            return "🏴 تسخیر فقط با نیروی زمینی ممکنه (حالت «همه‌جانبه» یا «زمینی»)"
+        if "land" not in config.mode_branches(mode):
+            return "🏴 تسخیر نیروی زمینی می‌خواد؛ نوع حمله باید «زمینی» رو شامل بشه"
         if not neigh:
             return (f"🏴 تسخیر فقط روی کشورهای <b>همسایه</b> ممکنه؛ «{esc(t['name'])}» {d:.0f} خونه دوره.\n"
                     "لیست همسایه‌هات: «همسایه‌ها» — حمله‌ی معمولی به کشورهای دور آزاده (با هزینه و زمان بیشتر).")
-        if c.get("land", config.LAND_START) >= config.LAND_MAX:
-            return f"🏞 بیشتر از {config.LAND_MAX} استان نمی‌تونی داشته باشی"
+        if c.get("land", config.LAND_START) >= E.land_cap(c):
+            return "🏞 " + E.land_cap_msg(c)
         if t.get("land", 0) <= config.LAND_MIN:
             return ("🏞 این NPC دیگه استان اضافه نداره؛ چند ساعت صبر کن تا بازسازی بشه" if npc
                     else "🏞 این کشور به حداقل استانش رسیده و استانی برای تسخیر نداره")
@@ -619,7 +618,7 @@ async def resolve_march(c0, m):
     mode, stance = _mode(m.get("mode")), m.get("stance", "bal")
     revenge, conquest = bool(m.get("revenge")), bool(m.get("conquest"))
     note = ""
-    if conquest and (t.get("land", 0) <= config.LAND_MIN or c.get("land", config.LAND_START) >= config.LAND_MAX):
+    if conquest and (t.get("land", 0) <= config.LAND_MIN or c.get("land", config.LAND_START) >= E.land_cap(c)):
         conquest, note = False, "\n🏞 تا رسیدن لشکر شرایط تسخیر از بین رفت؛ فقط حمله‌ی معمولی شد"
     liberate = conquest and c.get("lost_to", {}).get(str(tid), 0) > 0
     rel = 1.0 if npc else max(0.3, min(1.6, math.sqrt(E.score(t) / max(1, E.score(c)))))
@@ -844,6 +843,7 @@ def s_war(c):
         rows.append([(f"🌑 جنگ بزرگ · {BOSS['name']}", "w:boss")])
     rows += [[("🎯 جنگ با بازیکن‌ها", "w:t"), ("🌍 NPCها", "w:npc")],
              [(f"🧭 لشکرها ({len(c.get('marches', []))})", "w:mar"), ("🤝 همسایه‌ها", "w:nb")],
+             [("🏕 استعمار زمین خالی", "cl"), ("🏞 استان‌ها", "pv")],
              [("🕵️ جاسوسی", "s"), ("📜 گزارش نبردها", "w:log")]]
     return "\n".join(t), kb(rows + [BACK])
 
@@ -940,9 +940,9 @@ async def s_targets(c):
 
 def _mode_row(c, d, same, md, pct=60):
     """یه خط خلاصه برای هر نوع حمله: زمان و هزینه یا دلیل نشدن."""
-    br = config.MODE_BRANCHES[md]
+    br = config.mode_branches(md)
     rg = geo.ranges(c)
-    if md != "all":
+    if len(br) == 1:
         b0 = br[0]
         if b0 == "land" and not same:
             return f"{mode_tag(md)}: ✖ قاره‌ی دیگه"
@@ -950,7 +950,7 @@ def _mode_row(c, d, same, md, pct=60):
             return f"{mode_tag(md)}: ✖ بُرد {rg[b0]} خونه"
     plan, err = geo.plan(c, pct, md, d, same)
     if not plan:
-        return f"{mode_tag(md)}: ✖ یگان نداری"
+        return f"{mode_tag(md)}: ✖ " + ("بُرد/قاره" if err and "📏" in err else "یگان نداری")
     return f"{mode_tag(md)}: ⏱ {prog.dur(plan['secs'])} · 💰 {launch_cost(plan):,}"
 
 
@@ -974,7 +974,9 @@ async def s_pick(c, tid, mode="all"):
     if loc:
         lines.append("\n🧭 <b>انواع حمله</b> (۶۰٪ ارتش):")
         lines += [_mode_row(c, d, same, md) for md in ("all", "land", "sea", "air")]
-        lines.append(f"انتخاب فعلی: <b>{mode_tag(mode)}</b>")
+        if len(config.mode_branches(mode)) == 2:
+            lines.append(_mode_row(c, d, same, mode) + "  ← ترکیب انتخابی")
+        lines.append(f"انتخاب فعلی: <b>{mode_tag(mode)}</b> (با دکمه‌های پایین هر ترکیبی از ۳ شاخه رو انتخاب کن)")
     if exact:
         sup = 0.0 if npc else await ally_support(t)
         ch = {pp: est_sent(c, t, pp, mode, sup, ok)[2] for pp in (30, 60, 100)}
@@ -998,10 +1000,16 @@ async def s_pick(c, tid, mode="all"):
         lines.append(f"🏴 «تسخیر» ۲ فرمان می‌خواد؛ پیروزی قاطع (نسبت ≥ {config.CONQUEST_RATIO}) یه استان می‌گیری"
                      + (f" · 🏞 این NPC الان {t.get('land', 5)} استان داره" if npc else ""))
     lines += ["", STANCE_LEGEND]
-    modes = [[((("✅ " if md == mode else "") + mode_tag(md)), f"w:pick:{tid}:{md}") for md in ("all", "land", "sea", "air")]]
+    cur = set(config.mode_branches(mode))
+    tog = []
+    for b_ in config.BRANCH_ORDER:                              # هر دکمه یه شاخه رو روشن/خاموش می‌کنه (ترکیب دلخواه)
+        nxt = (cur - {b_}) if b_ in cur else (cur | {b_})
+        nxt = nxt or {b_}
+        tog.append((("✅ " if b_ in cur else "▫️ ") + config.BRANCH_E[b_] + config.BRANCH_N[b_], f"w:pick:{tid}:{config.norm_mode('+'.join(nxt))}"))
+    modes = [tog, [(("✅ " if len(cur) == 3 else "") + "🌐 همه‌جانبه", f"w:pick:{tid}:all")]]
     rows = modes + ([[("🎯 حمله‌ی هوشمند (کمترین ارتشِ لازم)", f"w:auto:{tid}:{mode}")]] if exact else []) \
         + stance_rows(lambda p, s: f"w:go:{tid}:{p}:{s}:{mode}")
-    if loc and neigh and mode in ("all", "land"):
+    if loc and neigh and "land" in config.mode_branches(mode):
         rows.append([("🏴 تسخیر ۶۰٪", f"w:cq:{tid}:60:{mode}"), ("🏴 تسخیر ۱۰۰٪", f"w:cq:{tid}:100:{mode}")])
     rows.append([("🕵️ جاسوسی · ۵۰۰", f"w:spy:{tid}"), ("🔙", "w:npc" if npc else "w:t")])
     return "\n".join(lines), kb(rows)

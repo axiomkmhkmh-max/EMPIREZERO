@@ -475,9 +475,24 @@ def train_secs(c, k, n):
     return n * U[k]["t"] * config.TRAIN_TIME_MULT * events.mult("build") / (1 + 0.12 * lv(c, "barracks"))
 
 
+def max_buy(c, k):
+    """بیشترین تعداد یگان k که الان می‌تونی بخری (سکه، فولاد و ظرفیت پادگان)."""
+    if k not in U:
+        return 0
+    u = U[k]
+    room = army_cap(c) - army_size(c) - queued_size(c)
+    lim = [room // u["size"], int(c["treasury"] // u["cost"]) if u["cost"] else 10 ** 9,
+           int(c["steel"] // u["steel"]) if u["steel"] else 10 ** 9]
+    return max(0, min(lim))
+
+
 def buy_unit(c, k, n):
-    if k not in U or n <= 0:
+    if k not in U:
         return False, "؟"
+    if n == "max":
+        n = max_buy(c, k)
+    if n <= 0:
+        return False, "💸 الان برای این یگان سکه، فولاد یا ظرفیت پادگان نداری"
     u = U[k]
     for r, rl in u["req"].items():
         if lv(c, r) < rl:
@@ -499,6 +514,11 @@ def buy_unit(c, k, n):
         c["units"][k] = c["units"].get(k, 0) + n
         return True, f"✅ {n} {u['n']} آماده‌ی نبرده 💪"
     st = max([now()] + [b["end"] for b in pend])
+    last = max(pend, key=lambda b: b["end"]) if pend else None
+    if last and last["k"] == k:              # خرید پشت‌سرهم از یه یگان توی همون دسته ادغام میشه (صف پر نمیشه)
+        last["n"] += n
+        last["end"] += secs
+        return True, f"🪖 آموزش {n} {u['n']} به صف اضافه شد؛ {dur(last['end'] - now())} دیگه آماده‌ست"
     c["tq"].append({"id": _jid(c), "k": k, "n": n, "end": st + secs})
     return True, f"🪖 آموزش {n} {u['n']} شروع شد؛ {dur(st + secs - now())} دیگه آماده‌ست"
 
@@ -629,7 +649,7 @@ def calc(att, dfn, frac, stance="bal", support=0.0, rnd=None, sent=None, mode="a
     st = STANCES.get(stance, STANCES["bal"])
     if sent is None:
         sent = {k: int(att["units"].get(k, 0) * frac) for k in ATK}
-    w = config.MODE_DEF_W.get(mode, config.MODE_DEF_W["all"])
+    w = config.def_weights(mode)
     ga = (1 + 0.08 * att["techlv"]["mil"]) * morale(att) * st["atk"]
     gd = (1 + 0.08 * dfn["techlv"]["def"]) * morale(dfn) * (1 + 0.03 * lv(dfn, "police"))
     raw = _fronts(att, dfn, sent, mode)
@@ -662,7 +682,7 @@ def estimate(att, dfn, frac, stance="bal", support=0.0, mode="all", sent=None):
 def battle(att, dfn, frac, support=0.0, stance="bal", loot_mult=1.0, sent=None, mode="all", conquest_ratio=None):
     r = calc(att, dfn, frac, stance, support, lambda: random.uniform(0.85, 1.15), sent, mode)
     sent, A, D, st, fr, wm = r["sent"], r["A"], r["D"], r["st"], r["fronts"], r["w"]
-    if "missile" in sent or mode == "all" or mode == "air":
+    if "missile" in sent or "air" in config.mode_branches(mode):
         mis = int(sent["missile"]) if "missile" in sent else int(att["units"].get("missile", 0) * frac)
     else:
         mis = 0
@@ -885,9 +905,20 @@ def upgrade(c, br):
 
 
 # ---------------------------------------------------------------- 🏕 استعمار (آباد کردن زمین خالی)
+def land_cap(c):
+    """سقف استان‌های هر کشور از روی جمعیتش: ۵ استان اول با ۱۰ هزار نفر، بعدش به‌ازای هر ۲٬۵۰۰ نفر بیشتر یکی."""
+    extra = max(0, int((c["pop"] - config.LAND_POP0) // config.LAND_POP_PER))
+    return min(config.LAND_MAX, config.LAND_START + extra)
+
+
+def land_cap_msg(c):
+    return (f"👥 جمعیتت ({c['pop']:,.0f}) فقط تا {land_cap(c)} استان رو پشتیبانی می‌کنه "
+            f"(هر {config.LAND_POP_PER:,} نفرِ بالای {config.LAND_POP0:,} یه استان) — جمعیتت رو زیاد کن")
+
+
 def colony_step(c):
     """تعداد پله‌ی استعمار: استان‌های بالای شروع + کارهای در حال انجام."""
-    return min(12, max(0, c.get("land", config.LAND_START) - config.LAND_START) + len(c.get("colony", [])))
+    return min(config.COLONY_STEPS_MAX, max(0, c.get("land", config.LAND_START) - config.LAND_START) + len(c.get("colony", [])))
 
 
 def colony_cost(c):
@@ -909,8 +940,8 @@ def colony_start(c, free_cells):
     c.setdefault("colony", [])
     if lv(c, "palace") < config.COLONY_MIN_PALACE:
         return False, f"🏰 برای استعمار باید کاخ حداقل سطح {config.COLONY_MIN_PALACE} باشه"
-    if c.get("land", config.LAND_START) + len(c["colony"]) >= config.LAND_MAX:
-        return False, f"🏞 بیشتر از {config.LAND_MAX} استان نمی‌تونی داشته باشی"
+    if c.get("land", config.LAND_START) + len(c["colony"]) >= land_cap(c):
+        return False, "🏞 " + land_cap_msg(c)
     if len(c["colony"]) >= colony_slots(c):
         return False, f"⏳ همین الان {len(c['colony'])} استعمار در حال انجامه (کاخ سطح ۵ ظرفیت دومی میده)"
     if free_cells < 10:
@@ -962,7 +993,7 @@ def settle(c):
     for j in c.get("colony", []):
         if j["end"] > t:
             keep.append(j)
-        elif c.get("land", config.LAND_START) < config.LAND_MAX:
+        elif c.get("land", config.LAND_START) < config.LAND_MAX:          # سقفِ جمعیت موقع شروع چک شده؛ این فقط سقف فنیه
             c["land"] = c.get("land", config.LAND_START) + 1
             msgs.append(f"🏕 استعمار تموم شد؛ یه استان تازه آباد شد! قلمروت {c['land']} استان 🎉")
             c.setdefault("news_out", []).append(f"🏕 <b>{c['name']}</b> زمین‌های خالی رو آباد کرد و استان {c['land']}ـمش رو ساخت!")

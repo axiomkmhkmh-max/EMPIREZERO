@@ -285,7 +285,7 @@ def s_units(c):
             req = " ".join(f"{B[b]['n']}{lv}" for b, lv in u["req"].items())
             lines.append(f"{u['e']} {u['n']}: <b>{c['units'].get(k, 0)}</b> — {u['cost']}💰 {u['steel']}⚙️ · 🗡{u['atk']} 🛡{u['dfn']} · ظرفیت {u['size']} · سرعت {u['spd']}x" + (f" · نیاز: {req}" if req else ""))
             q = (50, 500) if u["cost"] <= 100 else (10, 50) if u["cost"] <= 500 else (1, 5)
-            rows.append([(f"{u['e']} +{x}", f"u:buy:{k}:{x}") for x in q])
+            rows.append([(f"{u['e']} +{x}", f"u:buy:{k}:{x}") for x in q] + [(f"{u['e']} حداکثر ({E.max_buy(c, k)})", f"u:buy:{k}:max")])
     lines.append("\n🚀 موشک ساختمان‌ها رو می‌زنه، 📡 پدافند رهگیری می‌کنه · 🥷 کماندو سریع، 💣 توپخانه ضدِ پیاده، 🛡 تانک سنگین زره‌دار، 🔱 ناوشکن و 🛳 ناو هواپیمابر ناوگان سنگین، 🛸 پهپاد ارزون و سریع، 🛩 بمب‌افکن ضربه‌ی هوایی")
     return "\n".join(lines)[:4000], kb(rows + [BACK])
 
@@ -470,7 +470,7 @@ async def route(c, p):
     elif t == "p" and len(p) > 2:
         toast = E.set_tax(c, int(p[2])) if p[1] == "tax" else E.set_budget(c, p[2], int(p[3]))
     elif t == "u" and len(p) > 3:
-        toast = E.buy_unit(c, p[2], int(p[3]))[1]
+        toast = E.buy_unit(c, p[2], "max" if p[3] == "max" else int(p[3]))[1]
     elif t == "g" and len(p) > 2:
         toast = E.upgrade(c, p[2])[1]
     elif t == "r" and len(p) > 2:

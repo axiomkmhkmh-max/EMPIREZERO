@@ -15,7 +15,7 @@ import config
 import worldmap
 from config import U
 
-CACHE = {"tier": None, "ts": 0.0, "pos": {}, "total": 0, "pending": 0, "banned": set()}
+CACHE = {"tier": None, "ts": 0.0, "pos": {}, "total": 0, "pending": 0, "players": 0, "banned": set()}
 SEEDS = {"m": {}, "loaded": False}
 _SEED_LOCK = None
 TTL = 120
@@ -41,6 +41,9 @@ async def seeds(ids):
         if not SEEDS["loaded"]:
             doc = await db.META.find_one({"_id": "mapseeds"}) or {}
             SEEDS["m"] = {str(k): int(v) for k, v in doc.get("m", {}).items()}
+            fl = await db.META.find_one({"_id": "maptier"}) or {}
+            worldmap.TIER_FLOOR = max(worldmap.TIER_FLOOR, int(fl.get("v", 0)))     # نقشه هیچ‌وقت کوچیک‌تر نمیشه
+            SEEDS["floor_saved"] = int(fl.get("v", 0))
             SEEDS["loaded"] = True
         m = SEEDS["m"]
         nxt = max(list(m.values()) + [-1]) + 1
@@ -65,8 +68,12 @@ async def refresh(force=False, need=None):
     docs.sort(key=lambda d: (d.get("created", 0), d["_id"]))
     total = sum(int(d.get("land", config.LAND_START)) for d in docs if d["_id"] not in banned)       # همون عددی که نقشه برای انتخاب اندازه‌ش می‌گیره
     pending = sum(len(d.get("colony") or []) for d in docs if d["_id"] not in banned)
-    tier = worldmap.pick_tier(total)
-    sd = await seeds([d["_id"] for d in docs])
+    sd = await seeds([d["_id"] for d in docs])                                  # (اول seeds تا کف اندازه‌ی نقشه از دیتابیس بیاد)
+    players = sum(1 for d in docs if d["_id"] not in banned)
+    tier = worldmap.pick_tier(total, players)                                   # نقشه خودکار با تعداد کشورها بزرگ میشه
+    if tier > SEEDS.get("floor_saved", 0):
+        SEEDS["floor_saved"] = tier
+        await db.META.replace_one({"_id": "maptier"}, {"_id": "maptier", "v": tier}, upsert=True)
     W, H, nb, cells, pts, elev = worldmap.make_world(tier)
     cont = worldmap.continents(tier)
     pos = {}
@@ -76,7 +83,7 @@ async def refresh(force=False, need=None):
         cell = pts[sd.get(d["_id"], 0) % len(pts)]
         x, y = worldmap.cell_xy(tier, cell)
         pos[d["_id"]] = dict(cell=cell, x=x, y=y, cont=cont.get(cell, -1))
-    CACHE.update(tier=tier, ts=now(), pos=pos, total=total, pending=pending, banned=banned)
+    CACHE.update(tier=tier, ts=now(), pos=pos, total=total, pending=pending, players=players, banned=banned)
     return CACHE
 
 
@@ -117,7 +124,7 @@ def is_neighbor(a, b):
 
 def free_cells():
     """زمین خالیِ فعلی نقشه (خونه‌ی خشکیِ بدون صاحب)."""
-    tier = CACHE["tier"] if CACHE["tier"] is not None else config.MAP_MIN_TIER
+    tier = CACHE["tier"] if CACHE["tier"] is not None else max(config.MAP_MIN_TIER, worldmap.TIER_FLOOR)
     return max(0, len(worldmap.make_world(tier)[3]) - CACHE["total"] - CACHE["pending"])
 
 
@@ -144,9 +151,8 @@ def reachable(c, d, same_cont):
 
 
 def pick_sent(c, pct, mode, ok_branches):
-    """یگان‌های اعزامی برای نوع حمله‌ی mode با pct٪ ارتش، فقط از شاخه‌هایی که برد دارن."""
-    mode = mode if mode in config.MODE_BRANCHES else "all"
-    brs = set(config.MODE_BRANCHES[mode]) & set(ok_branches)
+    """یگان‌های اعزامی برای نوع حمله‌ی mode (همه‌جانبه یا ترکیب دلخواه شاخه‌ها) با pct٪ ارتش، فقط از شاخه‌هایی که برد دارن."""
+    brs = set(config.mode_branches(mode)) & set(ok_branches)
     u = c["units"]
     sent = {k: int(u.get(k, 0) * pct / 100) for k, d in U.items() if d["atk"] > 0 and d["br"] in brs}
     if "air" in brs:
@@ -174,18 +180,19 @@ def transport_cost(sent, d):
 
 def plan(c, pct, mode, d, same_cont):
     """(نقشه یا None، پیام خطا). نقشه = dict(sent, secs, transport, size, mode, dist, dropped)"""
-    mode = mode if mode in config.MODE_BRANCHES else "all"
+    mode = config.norm_mode(mode)
     ok = reachable(c, d, same_cont)
-    want = set(config.MODE_BRANCHES[mode])
-    if mode != "all":
-        br = next(iter(want))
-        if br not in ok:
-            rg = ranges(c)
-            if br == "land" and not same_cont:
-                return None, "🪖 نیروی زمینی نمی‌تونه از دریا رد بشه (اون کشور روی قاره‌ی دیگه‌ست)؛ حمله‌ی «دریایی» یا «هوایی» بزن"
-            need = "بندر نظامی" if br == "sea" else "کارخانه" if br == "air" else ""
-            return None, (f"📏 برد نیروی {config.MODE_NAMES[mode][1]} تو {rg[br]} خونه‌ست ولی فاصله {d:.0f} خونه‌ست"
-                          + (f" (با ارتقای {need} بیشتر میشه)" if need else ""))
+    want = list(config.mode_branches(mode))
+    if not set(want) & ok:
+        rg = ranges(c)
+        if len(want) > 1:
+            return None, "📏 هیچ‌کدوم از شاخه‌های انتخابی (از نظر برد یا قاره) به این کشور نمی‌رسن؛ نوع دیگه‌ای انتخاب کن"
+        br = want[0]
+        if br == "land" and not same_cont:
+            return None, "🪖 نیروی زمینی نمی‌تونه از دریا رد بشه (اون کشور روی قاره‌ی دیگه‌ست)؛ حمله‌ی «دریایی» یا «هوایی» بزن"
+        need = "بندر نظامی" if br == "sea" else "کارخانه" if br == "air" else ""
+        return None, (f"📏 برد نیروی {config.BRANCH_N[br]} تو {rg[br]} خونه‌ست ولی فاصله {d:.0f} خونه‌ست"
+                      + (f" (با ارتقای {need} بیشتر میشه)" if need else ""))
     dropped = sorted(br for br in want if br not in ok)
     sent = pick_sent(c, pct, mode, ok)
     if not any(U[k]["atk"] > 0 for k in sent):

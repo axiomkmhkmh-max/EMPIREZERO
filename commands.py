@@ -719,13 +719,29 @@ async def h_army(m, c, a):
     return ui.s_units(c)
 
 
+UNIT_ALIAS |= {"تانک‌سنگین": "htank", "تانک_سنگین": "htank", "سنگین": "htank", "ناو‌هواپیمابر": "carrier", "هواپیمابر": "carrier",
+               "ناوهواپیمابر": "carrier", "ناو_هواپیمابر": "carrier", "بمب‌افکن": "bomber", "بمب": "bomber", "ناوشکن": "destroyer",
+               "ناوچه": "corvette", "کماندو": "cmd", "پهپاد": "drone", "بالگرد": "heli", "توپخانه": "arty", "موشک": "missile", "پدافند": "ad"}
+
+
+def _unorm(s):
+    """اسم یگان بدون فاصله/نیم‌فاصله/خط‌زیر؛ تا «تانک سنگین»، «تانک‌سنگین» و «تانک_سنگین» یکی حساب بشن."""
+    return reg.clean(s).replace("\u200c", "").replace(" ", "").replace("_", "").lower()
+
+
+UNIT_ALIAS_N = {_unorm(k): v for k, v in UNIT_ALIAS.items()}
+
+
 @cmd("train", "آموزش", "استخدام", args=True)
 async def h_train(m, c, a):
     tk = a.split()
-    k = UNIT_ALIAS.get(tk[0].lower()) if tk else None
-    q = amount(tk[1]) if len(tk) > 1 else None
+    q = amount(tk[-1]) if len(tk) > 1 else None          # آخرین توکن تعداده؛ بقیه اسم یگان (اسم‌های چندکلمه‌ای مثل «تانک سنگین»)
+    if q is None and len(tk) > 1 and tk[-1] in ("حداکثر", "max", "ماکس"):
+        q = "max"
+    name = " ".join(tk[:-1]) if len(tk) > 1 else ""
+    k = UNIT_ALIAS_N.get(_unorm(name))
     if not k or not q:
-        return "مثال: <code>آموزش پیاده 100</code> · یگان‌ها: " + "، ".join(u["n"] for u in U.values())
+        return "مثال: <code>آموزش پیاده 100</code> · <code>آموزش تانک سنگین 5</code> · <code>آموزش جنگنده حداکثر</code> · یگان‌ها: " + "، ".join(u["n"] for u in U.values())
     return E.buy_unit(c, k, q)[1]
 
 
@@ -776,17 +792,20 @@ MODE_WORDS = {"زمینی": "land", "دریایی": "sea", "هوایی": "air", 
 
 
 def _split_war_args(m, a):
-    """«حمله زمینی اسم‌کشور 60 یورش» → (توکن‌های هدف، درصد، تاکتیک، نوع حمله)"""
-    tk, pct, stance, mode = a.split(), 60, "bal", "all"
-    for _ in range(3):
+    """«حمله زمینی هوایی اسم‌کشور 60 یورش» → (توکن‌های هدف، درصد، تاکتیک، نوع حمله). چند نوع حمله رو می‌شه با هم ترکیب کرد."""
+    tk, pct, stance, modes = a.replace("+", " ").split(), 60, "bal", set()
+    for _ in range(8):
         if tk and tk[0] in MODE_WORDS:
-            mode = MODE_WORDS[tk.pop(0)]
+            modes.add(MODE_WORDS[tk.pop(0)])
         elif tk and tk[-1] in MODE_WORDS:
-            mode = MODE_WORDS[tk.pop()]
+            modes.add(MODE_WORDS[tk.pop()])
         elif tk and tk[-1] in STANCE_WORDS:
             stance = STANCE_WORDS[tk.pop()]
         elif tk and re.fullmatch(r"\d{1,3}%?", tk[-1]) and (len(tk) > 1 or m.reply_to_message):
             pct = max(10, min(100, int(tk.pop().rstrip("%"))))
+        else:
+            break
+    mode = "all" if (not modes or "all" in modes) else config.norm_mode("+".join(sorted(modes)))
     return tk, pct, stance, mode
 
 
@@ -796,7 +815,7 @@ async def h_attack(m, c, a):
     tid = await resolve(m, tk)
     if tid is None:
         return ("هدف پیدا نشد. «کشورها» رو ببین، یا روی پیام یه بازیکن ریپلای کن و بنویس «حمله».\n"
-                "تاکتیک: یورش / محتاط · نوع حمله: زمینی / دریایی / هوایی (مثلاً <code>حمله هوایی 3 80</code>)")
+                "تاکتیک: یورش / محتاط · نوع حمله: زمینی / دریایی / هوایی یا ترکیبشون (مثلاً <code>حمله زمینی هوایی 3 80</code>)")
     return await war.do_attack(c, tid, pct, stance, False, mode)
 
 

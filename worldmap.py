@@ -246,13 +246,22 @@ def make_world(tier):
     return W, H, nb, cells, pts, elev
 
 
-def pick_tier(total_land):
-    for t, (W, H) in enumerate(TIERS):
-        if t < MIN_TIER:
-            continue
-        if len(make_world(t)[3]) >= total_land * FILL + 30:
-            return t
-    return len(TIERS) - 1
+TIER_FLOOR = 0            # نقشه فقط بزرگ میشه نه کوچیک (کوچیک‌شدن مختصات همه رو دوباره جابه‌جا می‌کرد)
+
+
+def pick_tier(total_land, players=0):
+    """اندازه‌ی نقشه خودکار از روی خاک اشغالی و تعداد کشورها: جا برای خاک فعلی × FILL
+    + به‌ازای هر کشور MAP_FREE_PER_PLAYER خونه‌ی خالی (تازه‌وارد و استعمار). کف هم داره تا هیچ‌وقت کوچیک نشه."""
+    global TIER_FLOOR
+    need = total_land * FILL + players * config.MAP_FREE_PER_PLAYER + 30
+    pick = len(TIERS) - 1
+    for t in range(MIN_TIER, len(TIERS)):
+        if len(make_world(t)[3]) >= need:
+            pick = t
+            break
+    pick = max(pick, TIER_FLOOR)
+    TIER_FLOOR = pick
+    return pick
 
 
 # ------------------------------------------------------------------ مالکیت (رشد از پایتخت)
@@ -446,7 +455,7 @@ def layout(countries, seeds):
     """countries = [dict(id, name, land, npc)] → دیکشنری چیدمان (قابل کش)"""
     cs = [c for c in countries if c["land"] > 0]
     total = sum(c["land"] for c in cs)
-    tier = pick_tier(total)
+    tier = pick_tier(total, len(cs))
     entries = [(c["id"], seeds.get(c["id"], 0), c["land"]) for c in cs]
     own, caps = assign(tier, entries)
     ranked = sorted(range(len(cs)), key=lambda k: (-cs[k]["land"], entries[k][1]))

@@ -97,7 +97,7 @@ def advice(c):
     if c["steel"] < 100:
         tips.append("⚙️ فولادت کمه؛ از بازار بخر یا معدن بساز تا ارتش و استعمار نخوابه.")
     rich = c["treasury"] > max(15000, d["net"] * 12)
-    if rich and E.lv(c, "palace") >= config.COLONY_MIN_PALACE and c.get("land", 5) + len(c.get("colony", [])) < config.LAND_MAX and not c.get("colony"):
+    if rich and E.lv(c, "palace") >= config.COLONY_MIN_PALACE and c.get("land", 5) + len(c.get("colony", [])) < E.land_cap(c) and not c.get("colony"):
         coins = E.colony_cost(c)[0]
         if c["treasury"] >= coins:
             tips.append(f"🏕 پول خوابیده داری؛ «استعمار» یه استان تازه می‌سازه ({coins:,}💰).")
