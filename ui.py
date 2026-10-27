@@ -260,7 +260,7 @@ def s_policy(c):
     base = E.tax_base(c)
     t = [f"💸 <b>سیاست و بودجه</b>",
          f"💰 مالیات <b>{n(d['revenue'])}</b> − بودجه <b>{n(d['spend'])}</b> − نگهداری <b>{n(d['upkeep'])}</b> = <b>{d['net']:+,.0f}</b> در ساعت",
-         f"🧾 مالیات = {c['tax']}٪ × پایه‌ی {n(base)} (نصف تولید + {config.TAX_CAPITA} سکه به‌ازای هر نفر): جمعیت بیشتر = درآمد بیشتر حتی با نرخ کم",
+         f"🧾 مالیات = {c['tax']}٪ × پایه‌ی {n(base)} (کل تولید + {config.TAX_CAPITA} سکه به‌ازای هر نفر): جمعیت بیشتر = درآمد بیشتر حتی با نرخ کم",
          f"👥 جمعیت {n(c['pop'])} · 🏞 {c.get('land', config.LAND_START)} استان · مجموع بودجه {sum(c['budget'].values())}/{config.BUDGET_CAP} واحد", ""]
     rows = [[("➖", "p:tax:-5"), (f"مالیات {c['tax']}٪", "p:x"), ("➕", "p:tax:5")]]
     for k, nm in config.BUDGET_NAMES.items():

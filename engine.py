@@ -871,7 +871,7 @@ def upg_cost(l):
 
 
 def upg_secs(l):
-    return config.UPG_T0 * (l + 1) ** 1.5 * config.BUILD_TIME_MULT * events.mult("build")
+    return min(10 * 3600, config.UPG_T0 * (l + 1) ** 1.5) * config.BUILD_TIME_MULT * events.mult("build")
 
 
 def upgrade(c, br):
