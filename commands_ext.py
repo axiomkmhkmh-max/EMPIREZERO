@@ -61,7 +61,7 @@ async def h_resetall(m, c, a):
 # ------------------------------------------------------------------ رشد
 @cmd("invite", "دعوت", "لینک دعوت", "دعوت دوست")
 async def h_invite(m, c, a):
-    return growth.s_invite(c)
+    return growth.s_invite(c) if config.FEATURE_INVITE else config.OFF_MSG
 
 
 @cmd("code", "کد", "کد هدیه", args=True)
@@ -75,6 +75,8 @@ async def h_code(m, c, a):
 
 @cmd("box", "جعبه", "جعبه‌ی شانس", "جعبه شانس", args=True)
 async def h_box(m, c, a):
+    if not config.FEATURE_LUCKY:
+        return config.OFF_MSG
     ok, msg = growth.open_box(c) if a else (None, None)
     text, mk = growth.s_lucky(c)
     return ((msg + "\n\n") if msg else "") + text, mk

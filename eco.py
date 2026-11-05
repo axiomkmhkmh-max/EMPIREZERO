@@ -392,6 +392,8 @@ MISSIONS = [
     ("ally", "عضو یک اتحاد (گروه) شو", lambda c: bool(c.get("alliance")), dict(coins=2000, phx=1)),
     ("npc3", "۳ بار NPC رو شکست بده", lambda c: c["st"].get("npc_wins", 0) >= 3, dict(coins=5000, phx=3)),
 ]
+if not config.FEATURE_DAILY:
+    MISSIONS = [m for m in MISSIONS if m[0] != "daily"]
 
 
 def _rew(r):

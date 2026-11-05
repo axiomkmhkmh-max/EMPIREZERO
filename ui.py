@@ -11,6 +11,8 @@ import events
 import geo
 import growth
 import prog
+import arsenal
+import resmgmt
 import war
 import world
 from config import ASSETS, B, BRANCH, ITEMS, TECH, U
@@ -117,7 +119,8 @@ def dash(c):
          f"🟦 👥 {n(c['pop'])} · 😊 {bar(c['sat'], 5)} {c['sat']:.0f} · {st[2]} {st[1]}",
          f"🟦 🎓 {c['literacy']:.0f} · 🏥 {c['health']:.0f} · 🚓 {c['security']:.0f} · ⚡ {int(d['er'] * 100)}٪",
          f"🟥 🗡 {n(E.attack_power(c))} · 🛡 {n(E.defense_power(c))} · 🏆 {n(E.score(c))} · ⚔️ {c['wins']}/{c['losses']}"]
-    t.append(f"🛡 سپر فعاله، {sh / 3600:.1f} ساعت دیگه" if sh > 0 else "🛡 سپر نداری («سپر» بنویس)")
+    if sh > 0:
+        t.append(f"🛡 حمایت کشور تازه/بعد از باخت فعاله، {sh / 3600:.1f} ساعت دیگه")
     if warn:
         t.append("⚠️ " + " · ".join(warn))
     t.append(f"⚡ فرمان {int(E.orders(c))}/{E.orders_max(c)} · 🏞 {c.get('land', 5)} استان · 🏰 کاخ {E.lv(c, 'palace')}")
@@ -133,21 +136,28 @@ def dash(c):
     if nl:
         t.append("📰 " + nl[0])
     text = "\n".join(t) + pend + "\n\n👇 هر بخشی رو بخوای از پایین بزن"
-    rows = [[("🏗 ساختمان", "b"), ("💸 سیاست و بودجه", "p")],
-            [("🪖 ارتش", "u"), ("⬆️ ارتقا نیرو", "g")],
+    rows = [[("🏗 ساختمان (فناوری)", "b"), ("📦 مدیریت منابع", "rm")],
+            [("💸 سیاست و بودجه", "p"), ("🪖 ارتش", "u")],
+            [("⬆️ ارتقا نیرو", "g"), ("🔬 پژوهش", "r")],
             [("🏦 بانک", "k"), ("🏪 بازار", "t")],
             [("💱 ارز و توکن", "x"), ("🎖 ماموریت", "q")],
             [("⚔️ جنگ", "w"), ("🕵️ اطلاعات", "s")],
-            [("🤝 اتحاد", "a"), ("🔬 پژوهش", "r")],
+            [("🤝 اتحاد", "a"), ("🤝 دیپلماسی", "dp")],
             [("🚨 ناآرامی", "o"), ("🏆 رتبه‌بندی", "top")],
-            [("🏅 برترین‌ها", "bd"), ("🤝 دیپلماسی", "dp")],
-            [("🎰 جعبه‌ی شانس", "lb"), ("🎁 دعوت دوست", "iv")],
-            [("🎁 جایزه‌ی روزانه", "d"), ("🧳 کار", "wk")],
+            [("🏅 برترین‌ها", "bd"), ("🧳 کار", "wk")],
             [("📰 اخبار", "nw"), ("🏗 صف ساخت", "sq")],
             [("🗺 نقشه‌ی جهان", "mp"), ("👑 تاج امپراتوری", "cr")]]
+    hid = []                                      # بخش‌های خاموش از منو پنهانن (کدشون مونده)
+    if config.FEATURE_LUCKY:
+        hid.append(("🎰 جعبه‌ی شانس", "lb"))
+    if config.FEATURE_INVITE:
+        hid.append(("🎁 دعوت دوست", "iv"))
+    if config.FEATURE_DAILY:
+        hid.append(("🎁 جایزه‌ی روزانه", "d"))
+    rows += [hid[i:i + 2] for i in range(0, len(hid), 2)]
     if c.get("dil"):
         rows.insert(0, [("📜 رویداد جدید؛ تصمیم بگیر!", "ev")])
-    rows.append([("🛡 سپر", "sh"), ("🔄 بروزرسانی", "m")])
+    rows.append([("🛡 سپر", "sh"), ("🔄 بروزرسانی", "m")] if config.FEATURE_SHIELD else [("🔄 بروزرسانی", "m")])
     if c["_id"] in config.ADMINS:
         rows.append([("🛠 پنل ادمین", "ad:home")])
     return text, kb(rows)
@@ -198,7 +208,7 @@ def queue_lines(c):
 
 
 def s_queue(c):
-    lines = [f"🏗 <b>صف ساخت و آموزش</b>", f"کارگاه‌ها: {len(c['queue'])}/{E.slots(c)} (با ارتقای کاخ بیشتر میشه)", ""]
+    lines = [f"🏗 <b>صف ساخت و آموزش</b>", f"صف‌ها: {len(c['queue'])}/{E.slots(c)} (با ارتقای کاخ بیشتر میشه)", ""]
     rows = []
     for j in c["queue"]:
         cost = max(1, -(-int(j['end'] - E.now()) // config.SPEEDUP_SECS))
@@ -217,7 +227,7 @@ def s_queue(c):
 
 def s_build(c):
     cap = E.level_cap(c)
-    lines = ["🏗 <b>ساختمان‌ها</b>", f"💰 {n(c['treasury'])} · 🏰 کاخ {E.lv(c, 'palace')} → سقف سطح ساختمان‌ها {cap} · کارگاه {len(c['queue'])}/{E.slots(c)}"]
+    lines = ["🏗 <b>ساختمان‌ها</b>", f"💰 {n(c['treasury'])} · 🏰 کاخ {E.lv(c, 'palace')} → سقف سطح ساختمان‌ها {cap} · صف {len(c['queue'])}/{E.slots(c)}"]
     q = queue_lines(c)
     if q:
         lines += ["⏳ <b>در حال ساخت</b>"] + q
@@ -232,9 +242,25 @@ def s_build(c):
         elif k != "palace" and l >= cap:
             cost = "🏰"
         else:
-            cost = f"{n(E.build_cost(k, l))} · {dur(E.build_secs(k, l))}"
+            cost = f"{n(E.build_cost(k, l))} · {dur(E.build_secs(k, l, c))}"
         btn.append((f"{b['e']} {b['n']} ({l}) · {cost}", f"b:buy:{k}"))
     return "\n".join(lines)[:4000], kb([btn[i:i + 2] for i in range(0, len(btn), 2)] + [[("🏗 صف ساخت", "sq")], BACK])
+
+
+def s_rm(c):
+    """📦 مدیریت منابع: ساختمان‌های تعدادی با اثر بر اساس پوشش جمعیت."""
+    land = c.get("land", config.LAND_START)
+    lines = ["📦 <b>مدیریت منابع</b> (تعداد مهمه؛ سطح و فناوری توی «ساختمان» ـه)",
+             f"💰 {n(c['treasury'])} · 👥 {n(c['pop'])} · 🏞 {land} استان · نگهداری {n(resmgmt.upkeep(c))}/ساعت",
+             "پوشش = تعداد × جمعیتِ تحت‌پوشش هر واحد ÷ جمعیت؛ جمعیت بیشتر = تعداد بیشتر لازم.", ""]
+    rows = []
+    for k, r in resmgmt.RM.items():
+        h, mx = resmgmt.have(c, k), resmgmt.cap(c, k)
+        cov = f" · پوشش {resmgmt.eff(c, k) * 100:.0f}٪" if r["per"] else ""
+        lines.append(f"{r['e']} {r['n']} <b>{h:,}</b>/{mx:,}{cov} · {n(resmgmt.unit_cost(c, k))}💰\n   ↳ {r['d']}")
+        rows.append([(f"{r['e']} +1", f"rm:buy:{k}:1"), (f"+10", f"rm:buy:{k}:10"), (f"+100", f"rm:buy:{k}:100"),
+                     (f"حداکثر ({resmgmt.max_buy(c, k):,})", f"rm:buy:{k}:max")])
+    return "\n".join(lines)[:4000], kb(rows + [BACK])
 
 
 def s_unrest(c):
@@ -272,22 +298,89 @@ def s_policy(c):
     return "\n".join(t), kb(rows + [BACK])
 
 
+def _q(u):
+    return (50, 500) if u["cost"] <= 100 else (10, 50) if u["cost"] <= 500 else (1, 5)
+
+
+def _stat(u):
+    """یک خط آمار یگان بسته به بخشش."""
+    if u["cat"] == "missile":
+        return f"💥{u['dmg']} 🎯{int(u['acc'] * 100)}٪ 📏{u['rng']} خونه"
+    if u["cat"] == "ad":
+        return f"🛡{u['dfn']} · رهگیری موشک {u['icpt'] * 100:.1f}٪ هر واحد"
+    return f"🗡{u['atk']} 🛡{u['dfn']}"
+
+
 def s_units(c):
+    """🪖 ارتش: خلاصه‌ی ۵ بخش؛ هر بخش صفحه‌ی خودش رو داره."""
     cap = E.army_cap(c)
     lines = ["🪖 <b>ارتش</b>", f"ظرفیت: {E.army_size(c)} (+{E.queued_size(c)} در آموزش)/{cap} · ⚙️ {n(c['steel'])} · 💰 {n(c['treasury'])}"]
-    lines += [f"🪖 {b['n']:,} {U[b['k']]['n']} · {dur(b['end'] - E.now())}" for b in c["tq"]]
+    lines += [f"⏳ {b['n']:,} {U[b['k']]['n']} · {dur(b['end'] - E.now())}" for b in c["tq"]]
+    lines.append(f"🏭 سطح کارخانه: <b>{E.lv(c, 'factory')}</b> (با هر ۱۰ سطح یه مدل قوی‌تر از هر بخش باز میشه)\n")
     rows = []
-    for br, title in (("land", "🪖 زمینی"), ("air", "✈️ هوایی"), ("sea", "🚢 دریایی")):
-        lines.append(f"\n<b>{title}</b>")
-        for k, u in U.items():
-            if u["br"] != br:
-                continue
-            req = " ".join(f"{B[b]['n']}{lv}" for b, lv in u["req"].items())
-            lines.append(f"{u['e']} {u['n']}: <b>{c['units'].get(k, 0)}</b> — {u['cost']}💰 {u['steel']}⚙️ · 🗡{u['atk']} 🛡{u['dfn']} · ظرفیت {u['size']} · سرعت {u['spd']}x" + (f" · نیاز: {req}" if req else ""))
-            q = (50, 500) if u["cost"] <= 100 else (10, 50) if u["cost"] <= 500 else (1, 5)
-            rows.append([(f"{u['e']} +{x}", f"u:buy:{k}:{x}") for x in q] + [(f"{u['e']} حداکثر ({E.max_buy(c, k)})", f"u:buy:{k}:max")])
-    lines.append("\n🚀 موشک ساختمان‌ها رو می‌زنه، 📡 پدافند رهگیری می‌کنه · 🥷 کماندو سریع، 💣 توپخانه ضدِ پیاده، 🛡 تانک سنگین زره‌دار، 🔱 ناوشکن و 🛳 ناو هواپیمابر ناوگان سنگین، 🛸 پهپاد ارزون و سریع، 🛩 بمب‌افکن ضربه‌ی هوایی")
-    return "\n".join(lines)[:4000], kb(rows + [BACK])
+    for cat in arsenal.CAT_ORDER:
+        emoji, nm = arsenal.CATS[cat][0], arsenal.CATS[cat][1]
+        ks = arsenal.by_cat(cat)
+        have = sum(c["units"].get(k, 0) for k in ks)
+        pw = sum(c["units"].get(k, 0) * U[k]["power"] for k in ks)
+        opened = sum(1 for k in ks if E.unit_unlocked(c, k))
+        nxt = next((k for k in ks if not E.unit_unlocked(c, k) and not U[k]["special"]), None)
+        spec = [f"{U[k]['e']}{c['units'].get(k, 0)}" for k in ks if U[k]["special"] and c["units"].get(k, 0)]
+        lines.append(f"{emoji} <b>{nm}</b>: {have:,} یگان · قدرت {n(pw)} · {opened}/{len(ks)} مدل باز"
+                     + (f"\n   ⭐ گردان ویژه: {' '.join(spec)}" if spec else "")
+                     + (f"\n   🔓 بعدی: {U[nxt]['n']} ({E.unit_lock_text(c, nxt)})" if nxt else ""))
+        rows.append([(f"{emoji} {nm} ({have:,})", f"u:cat:{cat}")])
+    lines.append("\n🔻 برای کم کردن یا حذف یگان: «مدیریت ارتش» یا دستور <code>حذف تانک 20</code>")
+    rows = [rows[0] + rows[1], rows[2] + rows[3], rows[4]] + [[("🗑 مدیریت ارتش", "u:mg")], [("⬆️ ارتقا نیرو", "g")], BACK]
+    return "\n".join(lines)[:4000], kb(rows)
+
+
+def s_army_cat(c, cat):
+    """لیست یک بخش (به ترتیب قدرت) با قفل‌ها، آمار و دکمه‌های آموزش."""
+    emoji, nm = arsenal.CATS[cat][0], arsenal.CATS[cat][1]
+    lines = [f"{emoji} <b>{nm}</b> · ظرفیت {E.army_size(c)}/{E.army_cap(c)} · ⚙️ {n(c['steel'])} · 💰 {n(c['treasury'])} · 🏭 کارخانه {E.lv(c, 'factory')}"]
+    lines += [f"⏳ {b['n']:,} {U[b['k']]['n']} · {dur(b['end'] - E.now())}" for b in c["tq"] if U[b["k"]]["cat"] == cat]
+    rows, spec_shown = [], False
+    for k in arsenal.by_cat(cat):
+        u = U[k]
+        if u["special"] and not spec_shown:
+            lines.append("\n⭐ <b>گردان ویژه</b> (نسبت قدرت به ظرفیت ۵؛ گرون ولی کم‌جا)")
+            spec_shown = True
+        lock = E.unit_lock_text(c, k)
+        head = f"{u['e']} {u['n']}: <b>{c['units'].get(k, 0):,}</b>"
+        if lock:
+            lines.append(f"🔒 {u['n']} — {_stat(u)} · نیاز: {lock}")
+            continue
+        lines.append(f"{head} — {u['cost']}💰 {u['steel']}⚙️ · {_stat(u)} · ظرفیت {u['size']} · نسبت {u['ratio']}")
+        q = _q(u)
+        rows.append([(f"{u['e']} +{x}", f"u:buy:{k}:{x}") for x in q] + [(f"{u['e']} حداکثر ({E.max_buy(c, k)})", f"u:buy:{k}:max")])
+    if cat == "missile":
+        lines.append("\n🚀 موشک بعد از شلیک مصرف میشه · دقتش با دوری هدف کم میشه · 📡 پدافند رهگیری می‌کنه · برد = فاصله به خونه‌ی نقشه")
+    elif cat == "ad":
+        lines.append("\n📡 پدافند فقط جنگنده و موشک رو می‌زنه و خودش آسیب‌پذیره؛ نیروی زمینی نمی‌تونه به هوایی‌ها آسیب بزنه")
+    return "\n".join(lines)[:4000], kb(rows + [[("🪖 ارتش", "u"), ("🗑 مدیریت", "u:mg")], BACK])
+
+
+def s_army_mgmt(c):
+    """🗑 مدیریت ارتش: کم کردن یا حذف یگان‌ها (دکمه یا دستور حذف)."""
+    lines = ["🗑 <b>مدیریت ارتش</b>", "کم کردن یا حذف یگان‌ها؛ پولی برنمی‌گرده ولی نگهداری و ظرفیت آزاد میشه.",
+             "دستور: <code>حذف تانک 20</code> (۲۰ تا) · <code>حذف تانک</code> (همه‌ی اون یگان)", ""]
+    rows = []
+    for cat in arsenal.CAT_ORDER:
+        owned = [k for k in arsenal.by_cat(cat) if c["units"].get(k, 0) > 0]
+        if not owned:
+            continue
+        lines.append(f"<b>{arsenal.CATS[cat][0]} {arsenal.CATS[cat][1]}</b>")
+        for k in owned:
+            u = U[k]
+            lines.append(f"{u['e']} {u['n']}: <b>{c['units'][k]:,}</b>")
+            rows.append([(f"🗑 {u['e']} −1", f"u:del:{k}:1"), (f"−10", f"u:del:{k}:10"), (f"−100", f"u:del:{k}:100"), (f"همه", f"u:del:{k}:all")])
+    if not rows:
+        lines.append("هنوز یگانی نداری.")
+    away = sum(v for m in c.get("marches", []) for v in m["sent"].values())
+    if away:
+        lines.append(f"\n🧭 {away:,} یگان توی لشکرکشیه و اینجا حذف نمیشه.")
+    return "\n".join(lines)[:4000], kb(rows[:40] + [[("🪖 ارتش", "u")], BACK])
 
 
 def s_upgrade(c):
@@ -465,12 +558,26 @@ async def do_strike(c):
 async def route(c, p):
     import inspect
     t, toast, scr = p[0], None, None
+    if ((t == "sh" and not config.FEATURE_SHIELD) or (t == "d" and not config.FEATURE_DAILY)
+            or (t == "lb" and not config.FEATURE_LUCKY) or (t == "iv" and not config.FEATURE_INVITE)):
+        return config.OFF_MSG, dash(c)
+    if t == "rm" and len(p) > 3:
+        toast = resmgmt.buy(c, p[2], "max" if p[3] == "max" else int(p[3]))[1]
     if t == "b" and len(p) > 2:
         toast = E.build(c, p[2])[1]
     elif t == "p" and len(p) > 2:
         toast = E.set_tax(c, int(p[2])) if p[1] == "tax" else E.set_budget(c, p[2], int(p[3]))
-    elif t == "u" and len(p) > 3:
-        toast = E.buy_unit(c, p[2], "max" if p[3] == "max" else int(p[3]))[1]
+    elif t == "u" and len(p) > 1:
+        if p[1] == "buy" and len(p) > 3:
+            toast = E.buy_unit(c, p[2], "max" if p[3] == "max" else int(p[3]))[1]
+            scr = s_army_cat(c, U[p[2]]["cat"]) if p[2] in U else None
+        elif p[1] == "del" and len(p) > 3:
+            toast = E.disband(c, p[2], "all" if p[3] == "all" else int(p[3]))[1]
+            scr = s_army_mgmt(c)
+        elif p[1] == "cat" and len(p) > 2 and p[2] in arsenal.CAT_ORDER:
+            scr = s_army_cat(c, p[2])
+        elif p[1] == "mg":
+            scr = s_army_mgmt(c)
     elif t == "g" and len(p) > 2:
         toast = E.upgrade(c, p[2])[1]
     elif t == "r" and len(p) > 2:
@@ -544,7 +651,7 @@ async def route(c, p):
     if scr is None:
         f = {"b": s_build, "p": s_policy, "u": s_units, "g": s_upgrade, "r": s_research, "t": s_trade,
              "k": s_bank, "x": s_fx, "q": s_missions, "w": s_war, "s": s_spy, "a": s_ally,
-             "o": s_unrest, "top": s_top, "wk": s_work, "d": s_daily, "sh": s_shield, "sq": s_queue}.get(t, dash)
+             "o": s_unrest, "rm": s_rm, "top": s_top, "wk": s_work, "d": s_daily, "sh": s_shield, "sq": s_queue}.get(t, dash)
         scr = f(c)
         if inspect.isawaitable(scr):
             scr = await scr

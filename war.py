@@ -97,7 +97,8 @@ def logi_cost(c, pct):
 
 
 def has_army(c, pct):
-    return sum(int(c["units"].get(k, 0) * pct / 100) for k in ATK) > 0 or int(c["units"].get("missile", 0) * pct / 100) > 0
+    return sum(int(c["units"].get(k, 0) * pct / 100) for k in ATK) > 0 or any(
+        int(c["units"].get(k, 0) * pct / 100) > 0 for k, u in U.items() if u["cat"] == "missile")
 
 
 def check_ready(c, pct, orders=1):
@@ -123,21 +124,20 @@ def fog(c, tid, value):
     return value * rnd.uniform(0.7, 1.3)
 
 
-def est_sent(c, t, pct, mode="all", support=0.0, ok=None, stance="bal"):
-    """(قدرت حمله، دفاع، شانس) برای pct٪ ارتش در حالت mode؛ ok = شاخه‌هایی که به مقصد می‌رسن (نباشه همه)."""
-    ok = ok if ok is not None else {"land", "sea", "air"}
-    sent = geo.pick_sent(c, pct, mode, ok)
-    satk = {k: v for k, v in sent.items() if k != "missile"}
-    if not satk:
+def est_sent(c, t, pct, mode="all", support=0.0, ok=None, stance="bal", d=None):
+    """(قدرت حمله، دفاع، شانس) برای pct٪ ارتش در حالت mode؛ ok = شاخه‌هایی که به مقصد می‌رسن (نباشه همه)، d = فاصله."""
+    ok = ok if ok is not None else set(config.BRANCH_ORDER)
+    sent = geo.pick_sent(c, pct, mode, ok, d)
+    if not sent:
         return 0.0, E.defense_power(t), 0.0
-    return E.estimate(c, t, 0, stance, support, mode, satk)
+    return E.estimate(c, t, 0, stance, support, mode, sent, d)
 
 
-def best_pct(c, t, support=0.0, mode="all", ok=None):
+def best_pct(c, t, support=0.0, mode="all", ok=None, d=None):
     """کمترین درصد ارتش که شانس بردش ≥ ۷۵٪ باشه. برمی‌گردونه (درصد، شانس، لیست [(درصد، شانس)])."""
     res = []
     for p in (30, 40, 50, 60, 70, 80, 90, 100):
-        pr = est_sent(c, t, p, mode, support, ok)[2]
+        pr = est_sent(c, t, p, mode, support, ok, d=d)[2]
         res.append((p, pr))
         if pr >= 0.75:
             return p, pr, res
@@ -554,10 +554,9 @@ async def do_attack(c, tid, pct, stance="bal", conquest=False, mode="all"):
     if err:
         return err
     if npc:                                   # جلوی خودکشی‌ی بی‌خبر رو می‌گیریم (هیچ فرمان و سکه‌ای خرج نمیشه)
-        satk = {k: v for k, v in plan["sent"].items() if k != "missile"}
-        pr = E.estimate(c, t, 0, stance, 0.0, mode, satk)[2]
+        pr = E.estimate(c, t, 0, stance, 0.0, mode, dict(plan["sent"]), d)[2]
         if pr < 0.08:
-            bp, bpr, _ = best_pct(c, t, 0.0, mode)
+            bp, bpr, _ = best_pct(c, t, 0.0, mode, d=d)
             my, df = E.attack_power(c), E.defense_power(t)
             if bpr >= 0.15 and bp > pct:
                 return (f"⚠️ با {pct}٪ ارتش شانس بردت فقط حدود {int(pr * 100)}٪ هست (حمله {n(my * pct / 100)} در برابر دفاع {n(df)}).\n"
@@ -595,7 +594,7 @@ async def do_attack(c, tid, pct, stance="bal", conquest=False, mode="all"):
                      + "\\n💡 تا اون موقع ارتشت رو قوی کن یا هم‌پیمان‌هات رو خبر کن.", mk)
     drop = ""
     if plan["dropped"]:
-        drop = "\\n⚠️ شاخه‌ی بی‌برد/نامناسب اعزام نشد: " + "، ".join({"land": "زمینی", "sea": "دریایی", "air": "هوایی"}[b] for b in plan["dropped"])
+        drop = "\\n⚠️ شاخه‌ی بی‌برد/نامناسب اعزام نشد: " + "، ".join(config.BRANCH_N[b] for b in plan["dropped"])
     return (f"🧭 <b>لشکرکشی به {esc(t['name'])} شروع شد</b> ({mode_tag(mode)}{' · 🏴 تسخیر' if conquest else ''})\n"
             f"📍 {d:.0f} خونه · ⏱ {prog.dur(secs)} تا رسیدن\n"
             f"🪖 اعزامی: {fmt_units(plan['sent'])}\n"
@@ -624,11 +623,11 @@ async def resolve_march(c0, m):
     rel = 1.0 if npc else max(0.3, min(1.6, math.sqrt(E.score(t) / max(1, E.score(c)))))
     support = 0.0 if npc else await ally_support(t)
     r = E.battle(c, t, 0.0, support, stance, rel * (1.25 if revenge else 1.0), sent=dict(m["sent"]), mode=mode,
-                 conquest_ratio=config.CONQUEST_LIBERATE if liberate else None)
+                 conquest_ratio=config.CONQUEST_LIBERATE if liberate else None, dist=m.get("dist"))
     if not r:
         for k, v in m["sent"].items():
             c0["units"][k] = c0["units"].get(k, 0) + v
-        return dict(uid=uid, txt="🪖 لشکرت رسید ولی نیروی تهاجمی‌ای توش نبود؛ برگشتن", frames=None)
+        return dict(uid=uid, txt="🪖 لشکرت رسید ولی نتونست به هیچ‌کدوم از نیروهای دشمن آسیب بزنه (مثلاً نیروی زمینی به هوایی‌ها آسیب نمی‌زنه)؛ برگشتن", frames=None)
     extra, crown_def = note, ""
     if r["win"]:
         prog.bump(c, "win")
@@ -819,7 +818,7 @@ def s_war(c):
     sh = c["shield_until"] - now()
     land = c.get("land", config.LAND_START)
     t = ["⚔️ <b>مرکز فرماندهی جنگ</b>",
-         f"🗡 {n(E.attack_power(c))} · 🛡 {n(E.defense_power(c))} · 🚀 {c['units'].get('missile', 0)} · 🏞 {land} استان",
+         f"🗡 {n(E.attack_power(c))} · 🛡 {n(E.defense_power(c))} · 🚀 {sum(v for k, v in c['units'].items() if U.get(k, {}).get('cat') == 'missile')} · 🏞 {land} استان",
          orders_line(c),
          f"🏆 امتیاز جنگ این هفته: {n(prog.stat(c, 'w', 'war'))} · ⚔️ {c['wins']}/{c['losses']}"]
     if sh > 0:
@@ -973,15 +972,15 @@ async def s_pick(c, tid, mode="all"):
               f"🗡 قدرت تو: {n(E.attack_power(c))} · {orders_line(c)}"]
     if loc:
         lines.append("\n🧭 <b>انواع حمله</b> (۶۰٪ ارتش):")
-        lines += [_mode_row(c, d, same, md) for md in ("all", "land", "sea", "air")]
-        if len(config.mode_branches(mode)) == 2:
+        lines += [_mode_row(c, d, same, md) for md in ("all", "land", "sea", "air", "missile")]
+        if 1 < len(config.mode_branches(mode)) < len(config.BRANCH_ORDER):
             lines.append(_mode_row(c, d, same, mode) + "  ← ترکیب انتخابی")
-        lines.append(f"انتخاب فعلی: <b>{mode_tag(mode)}</b> (با دکمه‌های پایین هر ترکیبی از ۳ شاخه رو انتخاب کن)")
+        lines.append(f"انتخاب فعلی: <b>{mode_tag(mode)}</b> (با دکمه‌های پایین هر ترکیبی از ۴ شاخه رو انتخاب کن)")
     if exact:
         sup = 0.0 if npc else await ally_support(t)
-        ch = {pp: est_sent(c, t, pp, mode, sup, ok)[2] for pp in (30, 60, 100)}
+        ch = {pp: est_sent(c, t, pp, mode, sup, ok, d=d)[2] for pp in (30, 60, 100)}
         lines.append("🎲 شانس پیروزی: " + " · ".join(f"{pp}٪ ارتش ← ~{int(v * 100)}٪" for pp, v in ch.items()) + f" {difficulty(ch[100])}")
-        bp, bpr, _ = best_pct(c, t, sup, mode, ok)
+        bp, bpr, _ = best_pct(c, t, sup, mode, ok, d)
         lines.append(f"🎯 پیشنهاد: {bp}٪ ارتش (شانس ~{int(bpr * 100)}٪)" if bpr >= 0.5 else "🎯 با این نوع حمله و ارتش فعلی‌ات این حریف سخته؛ اول تقویت شو یا نوع دیگه‌ای بزن")
         if npc:
             u = " ".join(f"{U[k]['e']}{v}" for k, v in t["units"].items() if v)
@@ -1006,7 +1005,7 @@ async def s_pick(c, tid, mode="all"):
         nxt = (cur - {b_}) if b_ in cur else (cur | {b_})
         nxt = nxt or {b_}
         tog.append((("✅ " if b_ in cur else "▫️ ") + config.BRANCH_E[b_] + config.BRANCH_N[b_], f"w:pick:{tid}:{config.norm_mode('+'.join(nxt))}"))
-    modes = [tog, [(("✅ " if len(cur) == 3 else "") + "🌐 همه‌جانبه", f"w:pick:{tid}:all")]]
+    modes = [tog, [(("✅ " if len(cur) == len(config.BRANCH_ORDER) else "") + "🌐 همه‌جانبه", f"w:pick:{tid}:all")]]
     rows = modes + ([[("🎯 حمله‌ی هوشمند (کمترین ارتشِ لازم)", f"w:auto:{tid}:{mode}")]] if exact else []) \
         + stance_rows(lambda p, s: f"w:go:{tid}:{p}:{s}:{mode}")
     if loc and neigh and "land" in config.mode_branches(mode):
@@ -1072,7 +1071,7 @@ async def route(c, p):
         md = _mode(p[3] if len(p) > 3 else "all")
         loc = await locate(c, tid)
         ok = geo.reachable(c, loc[0], loc[1]) if loc else None
-        bp, bpr, _ = best_pct(c, t, 0.0 if t.get("npc") else await ally_support(t), md, ok)
+        bp, bpr, _ = best_pct(c, t, 0.0 if t.get("npc") else await ally_support(t), md, ok, loc[0] if loc else None)
         return None, (await do_attack(c, tid, bp, "bal", False, md), after)
     if sub == "cq" and len(p) > 3:
         return None, (await do_attack(c, _i(p, 2), _i(p, 3, 60), "bal", True, p[4] if len(p) > 4 else "all"), after)

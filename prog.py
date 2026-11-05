@@ -149,6 +149,14 @@ WEEKLY_POOL = [
 ]
 WEEKLY_ALL = dict(coins=10000, zero=5)
 
+# بخش‌های خاموش (config.FEATURE_*) ماموریت ناممکن نسازن
+import config as _cfg                                                            # noqa: E402
+if not _cfg.FEATURE_DAILY:
+    DAILY_FIXED = ("d_work1", "یک بار «کار» کن", "work", 1, dict(coins=400))
+if not _cfg.FEATURE_LUCKY:
+    DAILY_POOL = [m for m in DAILY_POOL if m[2] != "lucky"]
+    WEEKLY_POOL = [m for m in WEEKLY_POOL if m[2] != "lucky"]
+
 
 def daily_list(d=None):
     r = random.Random("D" + (d or day_id()))

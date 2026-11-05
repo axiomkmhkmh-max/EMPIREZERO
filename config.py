@@ -30,32 +30,15 @@ B = {
     "intel":      dict(n="سازمان اطلاعات", e="🕵️", cost=3000, up=80, jobs=150, en=10, req={"police": 2}, d="جاسوسی، خرابکاری، ضدجاسوسی"),
     "port":       dict(n="بندر نظامی", e="⚓", cost=3500, up=90, jobs=250, en=10, req={"factory": 1}, d="باز شدن نیروی دریایی و ارتقای دریایی"),
     "barracks":   dict(n="پادگان", e="🏕", cost=2200, up=60, jobs=150, en=10, req={"police": 1}, d="ظرفیت ارتش +۱۵۰۰"),
-    "palace":     dict(n="کاخ", e="🏰", cost=6000, up=30, jobs=100, en=0, req={}, max=5, d="سقف سطح ساختمان‌ها ↑، فرمان نظامی و کارگاه ساخت بیشتر"),
+    "palace":     dict(n="کاخ", e="🏰", cost=6000, up=30, jobs=100, en=0, req={}, max=10, d="هر سطح ۱۰ سطح به سقف بقیه‌ی ساختمان‌ها اضافه می‌کنه، فرمان نظامی و صف ساخت بیشتر"),
+    "workshop":   dict(n="کارگاه", e="🛠", cost=4000, up=60, jobs=200, en=10, req={"palace": 5}, d="سرعت ساخت‌وساز ↑ (از کاخ سطح ۵؛ در سطح بالا بازدهیش کم میشه)"),
 }
 
+# جدول یگان‌ها توی arsenal.py ساخته میشه: ۵ بخش (زمینی/هوایی/موشکی/دریایی/پدافند) × ۱۰ مدل + ۱ سلاح ویژه
 # cost=سکه steel=فولاد up=نگهداری atk/dfn=قدرت size=ظرفیت پادگان br=شاخه (land/air/sea) t=ثانیه‌ی آموزش هر واحد
-# spd=سرعت نسبی توی لشکرکشی (۱ = معمولی؛ کندترین یگانِ اعزامی سرعت کل لشکر رو تعیین می‌کنه)
-U = {
-    # ---- 🪖 زمینی
-    "inf":     dict(n="پیاده‌نظام", e="🪖", cost=30, steel=0, up=0.15, atk=1, dfn=1.2, size=1, br="land", t=5, spd=1.0, req={}),
-    "cmd":     dict(n="کماندو", e="🥷", cost=90, steel=0, up=0.4, atk=3, dfn=1.6, size=2, br="land", t=12, spd=1.5, req={"barracks": 2}),
-    "tank":    dict(n="تانک", e="🚜", cost=400, steel=30, up=2, atk=8, dfn=6, size=10, br="land", t=45, spd=1.2, req={"factory": 1}),
-    "arty":    dict(n="توپخانه", e="💣", cost=600, steel=40, up=2.5, atk=14, dfn=2, size=12, br="land", t=60, spd=0.6, req={"factory": 2, "barracks": 1}),
-    "htank":   dict(n="تانک سنگین", e="🛡", cost=1100, steel=80, up=4, atk=20, dfn=16, size=20, br="land", t=110, spd=0.8, req={"factory": 3, "barracks": 2}),
-    # ---- ✈️ هوایی
-    "drone":   dict(n="پهپاد", e="🛸", cost=250, steel=15, up=0.8, atk=5, dfn=1, size=3, br="air", t=25, spd=2.2, req={"factory": 2}),
-    "heli":    dict(n="بالگرد", e="🚁", cost=700, steel=45, up=3, atk=12, dfn=6, size=12, br="air", t=60, spd=1.6, req={"factory": 2}),
-    "jet":     dict(n="جنگنده", e="✈️", cost=1000, steel=60, up=5, atk=16, dfn=8, size=20, br="air", t=90, spd=2.4, req={"factory": 2}),
-    "bomber":  dict(n="بمب‌افکن", e="🛩", cost=1700, steel=100, up=6, atk=30, dfn=2, size=25, br="air", t=120, spd=1.8, req={"factory": 3}),
-    "missile": dict(n="موشک", e="🚀", cost=1500, steel=80, up=2, atk=0, dfn=0, size=25, br="air", t=100, spd=3.0, req={"factory": 3}),
-    "ad":      dict(n="پدافند", e="📡", cost=1200, steel=60, up=3, atk=0, dfn=25, size=15, br="air", t=70, spd=1.0, req={"factory": 2}),
-    # ---- 🚢 دریایی
-    "corvette": dict(n="ناوچه", e="⛵", cost=350, steel=20, up=1.2, atk=5, dfn=5, size=6, br="sea", t=35, spd=1.5, req={"port": 1}),
-    "ship":    dict(n="ناو", e="🚢", cost=900, steel=50, up=4, atk=12, dfn=10, size=15, br="sea", t=80, spd=1.0, req={"port": 1, "factory": 1}),
-    "destroyer": dict(n="ناوشکن", e="🔱", cost=1300, steel=70, up=4, atk=17, dfn=16, size=20, br="sea", t=95, spd=1.2, req={"port": 2, "factory": 2}),
-    "sub":     dict(n="زیردریایی", e="🤿", cost=1500, steel=70, up=5, atk=22, dfn=6, size=20, br="sea", t=120, spd=0.9, req={"port": 2, "factory": 2}),
-    "carrier": dict(n="ناو هواپیمابر", e="🛳", cost=4200, steel=180, up=12, atk=28, dfn=20, size=40, br="sea", t=200, spd=0.8, req={"port": 3, "factory": 3}),
-}
+# spd=سرعت لشکرکشی · cat=بخش · unlock=سطح کارخانه‌ی لازم · موشک: dmg/acc/rng · پدافند: icpt (رهگیری موشک)
+import arsenal
+U = arsenal.UNITS
 
 # شاخه‌های نظامی و ساختمان لازم برای ارتقا
 BRANCH = {
@@ -145,8 +128,8 @@ BUILD_GROWTH = 1.5
 BUILD_TIME_MULT = 1.0    # ضریب کلی زمان ساخت/ارتقا (۰ = فوری) · از پنل ادمین قابل تغییر
 UPG_T0 = 1200            # ثانیه‌ی ارتقای نیروی سطح ۱
 TRAIN_TIME_MULT = 1.0    # ضریب زمان آموزش یگان‌ها (۰ = فوری)
-SPEEDUP_SECS = 1200      # هر ۱ زیرو = ۲۰ دقیقه تسریع
-SPEEDUP_DAILY = 6 * 3600 # سقف تسریع در روز (۰ = بدون سقف)؛ جلوی «با پول زیاد همه‌چی رو یه‌روزه مکس کردن» رو می‌گیره
+SPEEDUP_SECS = 2400      # هر ۱ زیرو = ۴۰ دقیقه تسریع (قبلاً ۲۰ دقیقه)
+SPEEDUP_DAILY = 0        # سقف تسریع در روز (۰ = بدون سقف)؛ به‌جاش نرخ تسریع بالاتره
 LAND_ARMY = 150          # هر استانِ بیشتر از ۵ تا، ظرفیت ارتش رو این‌قدر زیاد می‌کنه
 TRAIN_QUEUE_MAX = 8      # حداکثر دسته‌ی در انتظار برای هر شاخه (زمینی/هوایی/دریایی)
 
@@ -303,10 +286,11 @@ MODE_DEF_W = {                    # وزن دفاع هر جبهه‌ی مداف�
     "land": {"air": 0.55, "sea": 0.15, "land": 1.0},
     "sea":  {"air": 0.55, "sea": 1.0, "land": 0.30},
     "air":  {"air": 1.0, "sea": 0.15, "land": 0.25},
+    "missile": {"air": 0.0, "sea": 0.0, "land": 0.0},     # موشک رو فقط پدافند رهگیری می‌کنه (engine.calc)
 }
-BRANCH_ORDER = ("land", "sea", "air")
-BRANCH_E = {"land": "🪖", "sea": "🚢", "air": "✈️"}
-BRANCH_N = {"land": "زمینی", "sea": "دریایی", "air": "هوایی"}
+BRANCH_ORDER = ("land", "sea", "air", "missile")
+BRANCH_E = {"land": "🪖", "sea": "🚢", "air": "✈️", "missile": "🚀"}
+BRANCH_N = {"land": "زمینی", "sea": "دریایی", "air": "هوایی", "missile": "موشکی"}
 
 
 def mode_branches(mode):
@@ -319,25 +303,28 @@ def mode_branches(mode):
 
 def norm_mode(mode):
     br = mode_branches(mode)
-    return "all" if len(br) == 3 else "+".join(br)
+    return "all" if len(br) == len(BRANCH_ORDER) else "+".join(br)
 
 
 def def_weights(mode):
     br = mode_branches(mode)
-    if len(br) == 3:
+    if len(br) == len(BRANCH_ORDER):
         return {"air": 1.0, "sea": 1.0, "land": 1.0}
-    return {f: max(MODE_DEF_W[b][f] for b in br) for f in ("air", "sea", "land")}
+    if br == ("missile",):
+        return {"air": 1.0, "sea": 1.0, "land": 1.0}
+    return {f: max(MODE_DEF_W[b][f] for b in br if b != "missile") if any(b != "missile" for b in br) else 1.0
+            for f in ("air", "sea", "land")}
 
 
 def mode_title(mode):
     br = mode_branches(mode)
-    if len(br) == 3:
+    if len(br) == len(BRANCH_ORDER):
         return "🌐 همه‌جانبه"
     return "+".join(BRANCH_E[b] for b in br) + " " + "+".join(BRANCH_N[b] for b in br)
 
 
-MODE_NAMES = {"all": ("🌐", "همه‌جانبه"), "land": ("🪖", "زمینی"), "sea": ("🚢", "دریایی"), "air": ("✈️", "هوایی")}
-MODE_BRANCHES = {"all": BRANCH_ORDER, "land": ("land",), "sea": ("sea",), "air": ("air",)}
+MODE_NAMES = {"all": ("🌐", "همه‌جانبه"), "land": ("🪖", "زمینی"), "sea": ("🚢", "دریایی"), "air": ("✈️", "هوایی"), "missile": ("🚀", "موشکی")}
+MODE_BRANCHES = {"all": BRANCH_ORDER, "land": ("land",), "sea": ("sea",), "air": ("air",), "missile": ("missile",)}
 
 # --- تسخیر: فقط همسایه‌ها + حفاظت از قربانی (جلوی لخت‌کردن ضعیف‌ترها)
 CONQUEST_MIN_RATIO = 0.4          # هدف تسخیر باید حداقل ۴۰٪ قدرت تو رو داشته باشه (بازیکن)
@@ -355,3 +342,28 @@ COLONY_SECS0 = 30 * 60
 COLONY_SECS_GROWTH = 1.2
 COLONY_SECS_MAX = 10 * 3600      # قبلاً ۱۰ روز بود
 COLONY_MIN_PALACE = 2
+
+
+# ================================================================== 🏰 سقف سطح، ⏳ زمان ساخت، 🛠 کارگاه، 👥 جمعیت (نسخه‌ی تازه)
+BUILD_MAX = 100          # سقف مطلق سطح ساختمان‌ها (کاخ ۱۰ × ۱۰)
+LEVEL_PER_PALACE = 10    # هر سطح کاخ این‌قدر به سقف سطح بقیه‌ی ساختمان‌ها اضافه می‌کنه (کاخ ۴ ← پادگان تا ۴۰)
+BUILD_EXP_UNTIL = 9      # تا این سطح زمان ساخت مثل قبل نمایی (×BUILD_GROWTH)؛ بعدش هر سطح BUILD_STEP ثانیه بیشتر (خطی)
+BUILD_STEP = 3500        # n: هر سطحِ بالاتر از BUILD_EXP_UNTIL این‌قدر ثانیه زمان بیشتری می‌خواد
+COST_EXP_UNTIL = 10      # هزینه تا این سطح ×1.55^سطح؛ بعدش رشد ملایم‌تر (توانی) تا تو سطح‌های بالا نجومی نشه
+COST_TAIL = (0.12, 2.2)  # بعد از سطح بالا: هزینه = هزینه‌ی سطح ۱۰ × (1 + 0.12×(سطح−۱۰))^2.2
+
+# کارگاه: سرعت ساخت = 1 + A×L/(1 + L/H) → سطح ۱۰ ≈ ۱٫۷× · سطح ۵۰ = ۳× · سطح ۱۰۰ ≈ ۳٫۷× (سقف نظری ۵×)
+WORKSHOP_A, WORKSHOP_H = 0.08, 50.0
+
+# جمعیت: سقف = تعداد استان × تراکم (با کمی بونوس زیرساخت)؛ رشد طبیعی چند برابر قبل
+POP_PER_LAND = 4500      # هر استان چند نفر جا داره
+POP_INFRA_BONUS = 0.004  # هر سطح زیرساخت تراکم قابل‌تحمل رو این‌قدر بالا می‌بره
+POP_GROWTH = 0.02        # نرخ رشد طبیعی در هر ساعت بازی (×(۰٫۵ + سلامت))، با نزدیک شدن به سقف کم میشه؛ حدود ۸ برابر قبل
+POP_SHRINK_OVER = 0.02   # وقتی جمعیت از سقف بیشتر شد، این کسر از اضافه‌اش در ساعت کم میشه
+
+# ================================================================== بخش‌هایی که از منو پنهان شدن (کدشون مونده، فقط بازیکن نمی‌بینه)
+FEATURE_SHIELD = False   # 🛡 خرید سپر (سپرِ خودکار کشور تازه و بعد از باخت سر جاشه)
+FEATURE_DAILY = False    # 🎁 جایزه‌ی روزانه
+FEATURE_LUCKY = False    # 🎰 جعبه‌ی شانس
+FEATURE_INVITE = False   # 🎁 دعوت دوست
+OFF_MSG = "🚫 این بخش فعلاً غیرفعاله."

@@ -439,7 +439,7 @@ async def s_buildings(tid, note=""):
     if not c:
         return "کشور پیدا نشد", kb([HOME])
     btns = [(f"{b['e']} {b['n']} ({E.lv(c, k)})", f"ad:cbs:{k}") for k, b in B.items()]
-    t = f"{note_(note)}🏗 <b>ساختمان‌ها — {esc(c['name'])}</b>\nسطح مجاز ۰ تا {config.MAX_LEVEL}. بعد از انتخاب عدد بفرست (<code>=5</code> یا <code>+2</code>)."
+    t = f"{note_(note)}🏗 <b>ساختمان‌ها — {esc(c['name'])}</b>\nسطح مجاز ۰ تا {config.BUILD_MAX}. بعد از انتخاب عدد بفرست (<code>=5</code> یا <code>+2</code>)."
     return t, kb(grid(btns, 2) + [[("⬆️ همه MAX", "ad:cx:maxb"), ("🗑 همه ۰", "ad:cx:zerob")], [("🔙 کشور", f"ad:c:{tid}")]])
 
 
@@ -1001,7 +1001,7 @@ async def route(uid, S, p):
         return None, await s_buildings(tid)
     if t == "cbs":
         k = p[1]
-        return ask(S, {"act": "bld", "key": k}, f"{B[k]['e']} <b>{B[k]['n']}</b> — سطح؟ (<code>=5</code> دقیق · <code>+1</code> اضافه · ۰ تا {config.MAX_LEVEL})", "ad:cb")
+        return ask(S, {"act": "bld", "key": k}, f"{B[k]['e']} <b>{B[k]['n']}</b> — سطح؟ (<code>=5</code> دقیق · <code>+1</code> اضافه · ۰ تا {E.bmax(k)})", "ad:cb")
     if t == "cu":
         return None, await s_units(tid)
     if t == "cus":
@@ -1374,7 +1374,7 @@ async def handle_input(m, S, w, txt, uid):
 
         def f(c):
             old = E.lv(c, key)
-            new = int(clampv(v if mode == "set" else old + v, 0, config.MAX_LEVEL))
+            new = int(clampv(v if mode == "set" else old + v, 0, E.bmax(key)))
             c["buildings"][key] = new
             return old, new
         r = await mutate(tid, f)

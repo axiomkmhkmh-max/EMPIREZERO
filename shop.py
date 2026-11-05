@@ -13,7 +13,7 @@ import engine as E
 import prog
 from config import ITEMS
 
-CATS = (("shield", "سپر"), ("zero", "زیرو"), ("food", "غذا"), ("steel", "فولاد"))
+CATS = ((("shield", "سپر"),) if config.FEATURE_SHIELD else ()) + (("zero", "زیرو"), ("food", "غذا"), ("steel", "فولاد"))
 HIST_MAX = 12
 
 
@@ -71,11 +71,12 @@ def offers(t=None):
     kind = ("steel", "food")[s % 2]
     packs = config.SHOP_STEEL if kind == "steel" else config.SHOP_FOOD
     res_off = dict(kind="bonus", pct=config.SHOP_OFFER_BONUS[(s // 2) % len(config.SHOP_OFFER_BONUS)], ends=end)
-    return [_shield_item(h, z, sh_off), _res_item(kind, packs[-1], res_off)]
+    res = _res_item(kind, packs[-1], res_off)
+    return [_shield_item(h, z, sh_off), res] if config.FEATURE_SHIELD else [res]
 
 
 def catalog():
-    items = [_shield_item(h, z) for h, z in config.SHOP_SHIELDS]
+    items = [_shield_item(h, z) for h, z in config.SHOP_SHIELDS] if config.FEATURE_SHIELD else []
     items += [_zero_item(q) for q in config.SHOP_ZERO]
     items += [_res_item("food", q) for q in config.SHOP_FOOD]
     items += [_res_item("steel", q) for q in config.SHOP_STEEL]
@@ -106,6 +107,8 @@ def buy(c, item_id):
     if not it:
         return False, "این آیتم دیگه توی فروشگاه نیست (آفر عوض شده)", False
     world = False
+    if it["cat"] == "shield" and not config.FEATURE_SHIELD:
+        return False, config.OFF_MSG, False
     if it["cat"] == "shield":
         cost = it["cost"]
         if c["fx"].get("PHX", 0) < cost:

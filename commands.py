@@ -18,6 +18,7 @@ import engine as E
 import growth
 import prog
 import reg
+import resmgmt
 import ui
 import war
 import world
@@ -181,7 +182,7 @@ def s_reg_confirm(p):
     st = config.STARTER
     t = (f"📜 <b>پرونده‌ی کشورت آماده‌ست!</b>\n"
          f"{p['emblem']} <b>{esc(p['name'])}</b> · 👤 {esc(p['leader'])} · {e} {nm}\n"
-         f"🎁 هدیه‌ی شروع: {st['phx']:.0f} زیرو · {st['shield_h']} ساعت سپر · جایزه‌ی روزانه ۲ برابر\n"
+         f"🎁 هدیه‌ی شروع: {st['phx']:.0f} زیرو · {st['shield_h']} ساعت حمایت اولیه\n"
          "همه‌چی درسته؟ بزن بریم! 🚀")
     return t, kb([[("✅ تأسیس کشور", "rg:ok")],
                   [("✏️ اسم", "rg:typ"), ("🎯 سبک", "rg:chd"), ("🎭 نماد", "rg:che")],
@@ -349,9 +350,9 @@ def welcome(c):
          f"{c.get('emblem', '🏛')} <b>{esc(c['name'])}</b> تأسیس شد و مردمت چشم‌به‌راهتن 💛\n\n"
          f"🏦 هدیه‌ی بانک مرکزی:\n"
          f"💰 {n(c['treasury'])} · 🌾 {n(c['food'])} · ⚙️ {n(c['steel'])} · ⚡ {st['phx']:.0f} زیرو\n"
-         f"🛡 {st['shield_h']} ساعت سپر · جایزه‌ی روزانه ۲ برابر تا {st['newbie_days']} روز\n\n"
+         f"🛡 {st['shield_h']} ساعت حمایت اولیه · درآمد «کار» ۱٫۵ برابر تا {st['newbie_days']} روز\n\n"
          "✨ فقط کلمه بنویس:\n"
-         "«<b>دنیای من</b>» پنل کشور · «<b>روزانه</b>» جایزه · «<b>کار</b>» درآمد\n"
+         "«<b>دنیای من</b>» پنل کشور · «<b>مدیریت منابع</b>» ساخت تعدادی · «<b>کار</b>» درآمد\n"
          "«<b>ماموریت</b>» پاداش · «<b>جنگ</b>» حمله · «<b>راهنما</b>» همه‌ی کلمه‌ها\n\n"
          "موفق باشی فرمانروا! 🚀")
     return t, kb([[("🌍 باز کردن دنیای من", "m")]])
@@ -361,19 +362,20 @@ def welcome(c):
 HELP = """📖 <b>راهنما</b> — کلمه رو بنویس، پنلش باز میشه 🌟
 
 🌍 <b>شروع</b>: دنیای من · کشور من · رتبه · رتبه گروه
-🎁 <b>درآمد</b>: روزانه · کار · ماموریت · تحویل
-🏗 <b>ساخت</b>: ساختمان · ساخت مزرعه
+🎁 <b>درآمد</b>: کار · ماموریت · تحویل
+🏗 <b>ساخت</b>: ساختمان · ساخت مزرعه · ساخت کارگاه
+📦 <b>مدیریت منابع</b>: مدیریت منابع · احداث بیمارستان 50 · احداث ماشین پلیس حداکثر
 💸 <b>سیاست</b>: سیاست · ناآرامی · پژوهش
 🏦 <b>بانک</b>: بانک · سپرده 5000 · برداشت 2000 · وام 3000 · بازپرداخت همه
 🏪 <b>بازار</b>: بازار · خرید غذا 500 · فروش فولاد 50 · آگهی فولاد 100 6 · خرید آگهی 12 · لغو آگهی 12
-💱 <b>ارز و توکن</b>: ارز · خرید ارز زیرو 5 · فروش ارز زیرو 5 · سپر
-🪖 <b>ارتش</b>: ارتش · آموزش پیاده 100 · ارتقا · ارتقا زمینی
+💱 <b>ارز و توکن</b>: ارز · خرید ارز زیرو 5 · فروش ارز زیرو 5
+🪖 <b>ارتش</b>: ارتش · آموزش پیاده 100 · حذف تانک 20 (بدون عدد = حذف همه‌ی اون یگان) · ارتقا · ارتقا زمینی
 ⚔️ <b>جنگ</b>: جنگ · کمپین · جنگ بزرگ · فرمان · حمله 1 · حمله اسم‌کشور 60 یورش · جاسوسی اسم‌کشور
-🧭 <b>لشکرکشی</b>: حمله زمینی / دریایی / هوایی اسم‌کشور 60 (زمان و هزینه به فاصله و ارتش بستگی داره) · لشکرها (فراخوانی) · همسایه‌ها · تسخیر اسم‌کشور (فقط همسایه)
+🧭 <b>لشکرکشی</b>: حمله زمینی / دریایی / هوایی / موشکی اسم‌کشور 60 (زمان و هزینه به فاصله و ارتش بستگی داره) · لشکرها (فراخوانی) · همسایه‌ها · تسخیر اسم‌کشور (فقط همسایه)
 🏗 <b>صف</b>: صف · تسریع شماره (با زیرو)
 🤝 <b>اتحاد</b> (توی گروه): اتحاد · ساخت اتحاد نام · پیوستن · ترک اتحاد · اهدا 1000 · جنگ اتحاد نام · ضربه
 🕊 <b>دیپلماسی</b>: دیپلماسی · پیمان نام‌کشور 24 · هدیه نام‌کشور فولاد 100 · معامله نام‌کشور فولاد 100 غذا 500
-🎁 <b>رشد</b>: دعوت · جعبه · رویداد · اخبار · برترین‌ها
+📜 <b>رشد</b>: رویداد · اخبار · برترین‌ها
 🗺 <b>جهان</b>: نقشه (تصویر زنده‌ی استان‌ها) · تاج (امپراتور جهان و جایزه‌هاش)
 🏞 <b>قلمرو</b>: استان‌ها · استعمار (آباد کردن زمین خالی؛ هزینه و زمان زیاد) · دستاوردها (جایزه‌ی یک‌باره)"""
 
@@ -413,7 +415,7 @@ async def h_menu(m, c, a):
 
 @cmd("daily", "روزانه", "جایزه")
 async def h_daily(m, c, a):
-    return ui.s_daily(c)
+    return ui.s_daily(c) if config.FEATURE_DAILY else config.OFF_MSG
 
 
 @cmd("work", "کار", "کار کن")
@@ -553,12 +555,12 @@ cmd("fxsell", "فروش ارز", args=True)(_fx_cmd(eco.fx_sell))
 
 @cmd("shield", "سپر")
 async def h_shield(m, c, a):
-    return ui.s_shield(c)
+    return ui.s_shield(c) if config.FEATURE_SHIELD else config.OFF_MSG
 
 
 @cmd("buyshield", "خرید سپر")
 async def h_buyshield(m, c, a):
-    return eco.buy_shield(c)[1]
+    return eco.buy_shield(c)[1] if config.FEATURE_SHIELD else config.OFF_MSG
 
 
 # ------------------------------------------------------------------ پنل‌های کلمه‌ای
@@ -714,6 +716,32 @@ async def h_build(m, c, a):
     return E.build(c, k)[1]
 
 
+RM_ALIAS = {}
+for _k, _r in resmgmt.RM.items():
+    RM_ALIAS[_k] = _k
+    RM_ALIAS[_r["n"]] = _k
+RM_ALIAS |= {"پلیس": "police", "ماشین_پلیس": "police", "کارخانه": "factory", "کارخانه تولیدی": "factory", "مزرعه": "farm", "کشاورزی": "farm",
+             "نیروگاه": "plant", "رفاه": "welfare", "پایگاه": "base", "راه": "roads", "جاده": "roads", "دانشگاه": "university"}
+
+
+@cmd("resmgmt", "مدیریت منابع", "منابع")
+async def h_resmgmt(m, c, a):
+    return ui.s_rm(c)
+
+
+@cmd("rmbuild", "احداث", "بساز تعداد", args=True)
+async def h_rmbuild(m, c, a):
+    """احداث (نوع) (تعداد یا حداکثر)؛ مثال: احداث بیمارستان 50"""
+    tk = a.split()
+    q = amount(tk[-1]) if len(tk) > 1 else None
+    if q is None and len(tk) > 1 and tk[-1] in ("حداکثر", "max", "ماکس"):
+        q = "max"
+    k = RM_ALIAS_N.get(_unorm(" ".join(tk[:-1]))) if len(tk) > 1 else None
+    if not k or not q:
+        return "مثال: <code>احداث بیمارستان 50</code> · <code>احداث ماشین پلیس حداکثر</code> · نوع‌ها: " + "، ".join(r["n"] for r in resmgmt.RM.values())
+    return resmgmt.buy(c, k, q)[1]
+
+
 @cmd("army", "ارتش")
 async def h_army(m, c, a):
     return ui.s_units(c)
@@ -724,12 +752,34 @@ UNIT_ALIAS |= {"تانک‌سنگین": "htank", "تانک_سنگین": "htank",
                "ناوچه": "corvette", "کماندو": "cmd", "پهپاد": "drone", "بالگرد": "heli", "توپخانه": "arty", "موشک": "missile", "پدافند": "ad"}
 
 
+# اسم‌های کوتاه و قدیمی (قبل از مدل‌های واقعی): «تانک» = T-34، «ناو» = بیسمارک، «زیردریایی» = کیلو و...
+UNIT_ALIAS |= {"پیاده": "inf", "پیاده‌نظام": "inf", "تانک": "tank", "ناو": "ship", "زیردریایی": "sub", "ناو هواپیمابر": "carrier",
+               "رزمناو": "ship", "هاوک": "ad"}
+
+
+def _auto_aliases():
+    """اسم هر یگان بدون بخش لاتین/عدد (مثل «تانک T-72» ← «تانک») و آخرین کلمه‌ش (مثل «تایگر»)؛ فقط وقتی یکتا باشه."""
+    cand = {}
+    for k, u in U.items():
+        nm = u["n"].replace("⭐", "").strip()
+        words = [re.sub(r"[-A-Za-z0-9۰-۹]+$", "", w) for w in nm.split() if not re.fullmatch(r"[A-Za-z0-9۰-۹\-.]+", w)]
+        words = [w for w in words if w]
+        for a in {" ".join(words), words[-1] if words else ""}:
+            if a:
+                cand.setdefault(a, set()).add(k)
+    return {a: next(iter(ks)) for a, ks in cand.items() if len(ks) == 1 and a not in UNIT_ALIAS}
+
+
+UNIT_ALIAS |= _auto_aliases()
+
+
 def _unorm(s):
     """اسم یگان بدون فاصله/نیم‌فاصله/خط‌زیر؛ تا «تانک سنگین»، «تانک‌سنگین» و «تانک_سنگین» یکی حساب بشن."""
     return reg.clean(s).replace("\u200c", "").replace(" ", "").replace("_", "").lower()
 
 
 UNIT_ALIAS_N = {_unorm(k): v for k, v in UNIT_ALIAS.items()}
+RM_ALIAS_N = {_unorm(k): v for k, v in RM_ALIAS.items()}
 
 
 @cmd("train", "آموزش", "استخدام", args=True)
@@ -743,6 +793,23 @@ async def h_train(m, c, a):
     if not k or not q:
         return "مثال: <code>آموزش پیاده 100</code> · <code>آموزش تانک سنگین 5</code> · <code>آموزش جنگنده حداکثر</code> · یگان‌ها: " + "، ".join(u["n"] for u in U.values())
     return E.buy_unit(c, k, q)[1]
+
+
+@cmd("disband", "حذف", "حذف یگان", "کم کردن", args=True)
+async def h_disband(m, c, a):
+    """حذف (اسم یگان) [عدد]؛ بدون عدد = کل اون یگان حذف میشه."""
+    tk = a.split()
+    if not tk:
+        return ui.s_army_mgmt(c)
+    q = amount(tk[-1]) if len(tk) > 1 else None
+    if q is None and len(tk) > 1 and tk[-1] in ("همه", "all", "حداکثر"):
+        tk, q = tk[:-1], None
+    elif q is not None:
+        tk = tk[:-1]
+    k = UNIT_ALIAS_N.get(_unorm(" ".join(tk)))
+    if not k:
+        return "مثال: <code>حذف تانک 20</code> · <code>حذف تانک</code> (همه‌ی اون یگان) · یگان‌ها: " + "، ".join(u["n"] for u in U.values())
+    return E.disband(c, k, q)[1]
 
 
 @cmd("upgrade", "ارتقا", "ارتقاء", args=True)

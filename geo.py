@@ -135,9 +135,11 @@ def _lv(c, k):
 
 def ranges(c):
     """برد هر شاخه به خونه."""
+    mis = [u["rng"] for k, u in U.items() if u.get("cat") == "missile" and c["units"].get(k, 0) > 0]
     return {"land": config.RANGE_LAND,
             "sea": config.RANGE_SEA[0] + config.RANGE_SEA[1] * _lv(c, "port"),
-            "air": config.RANGE_AIR[0] + config.RANGE_AIR[1] * _lv(c, "factory")}
+            "air": config.RANGE_AIR[0] + config.RANGE_AIR[1] * _lv(c, "factory"),
+            "missile": max(mis) if mis else 0}      # برد موشکی = برد بلندترین موشکِ موجود (هر موشک برد خودش رو داره)
 
 
 def reachable(c, d, same_cont):
@@ -150,13 +152,18 @@ def reachable(c, d, same_cont):
     return ok
 
 
-def pick_sent(c, pct, mode, ok_branches):
-    """یگان‌های اعزامی برای نوع حمله‌ی mode (همه‌جانبه یا ترکیب دلخواه شاخه‌ها) با pct٪ ارتش، فقط از شاخه‌هایی که برد دارن."""
+def pick_sent(c, pct, mode, ok_branches, d=None):
+    """یگان‌های اعزامی برای نوع حمله‌ی mode (همه‌جانبه یا ترکیب دلخواه شاخه‌ها) با pct٪ ارتش، فقط از شاخه‌هایی که برد دارن.
+    موشک‌ها: هر نوع فقط وقتی شلیک میشه که بردش به فاصله‌ی d برسه."""
     brs = set(config.mode_branches(mode)) & set(ok_branches)
     u = c["units"]
-    sent = {k: int(u.get(k, 0) * pct / 100) for k, d in U.items() if d["atk"] > 0 and d["br"] in brs}
-    if "air" in brs:
-        sent["missile"] = int(u.get("missile", 0) * pct / 100)
+    sent = {}
+    for k, ud in U.items():
+        if ud.get("cat") == "missile":
+            if "missile" in brs and (d is None or ud["rng"] >= d):
+                sent[k] = int(u.get(k, 0) * pct / 100)
+        elif ud["atk"] > 0 and ud["br"] in brs:
+            sent[k] = int(u.get(k, 0) * pct / 100)
     return {k: v for k, v in sent.items() if v > 0}
 
 
@@ -190,12 +197,16 @@ def plan(c, pct, mode, d, same_cont):
         br = want[0]
         if br == "land" and not same_cont:
             return None, "🪖 نیروی زمینی نمی‌تونه از دریا رد بشه (اون کشور روی قاره‌ی دیگه‌ست)؛ حمله‌ی «دریایی» یا «هوایی» بزن"
+        if br == "missile":
+            if rg["missile"] <= 0:
+                return None, "🚀 موشکی نداری؛ از بخش ارتش موشک آموزش بده"
+            return None, f"📏 بلندبردترین موشکت {rg['missile']} خونه برد داره ولی فاصله {d:.0f} خونه‌ست (موشک با برد بیشتر لازمه)"
         need = "بندر نظامی" if br == "sea" else "کارخانه" if br == "air" else ""
         return None, (f"📏 برد نیروی {config.BRANCH_N[br]} تو {rg[br]} خونه‌ست ولی فاصله {d:.0f} خونه‌ست"
                       + (f" (با ارتقای {need} بیشتر میشه)" if need else ""))
     dropped = sorted(br for br in want if br not in ok)
-    sent = pick_sent(c, pct, mode, ok)
-    if not any(U[k]["atk"] > 0 for k in sent):
+    sent = pick_sent(c, pct, mode, ok, d)
+    if not any(U[k]["atk"] > 0 or U[k].get("cat") == "missile" for k in sent):
         return None, "🪖 برای این نوع حمله یگانِ آماده‌ای نداری"
     return dict(sent=sent, size=sent_size(sent), secs=travel_secs(c, sent, d), transport=transport_cost(sent, d),
                 mode=mode, dist=d, dropped=dropped), None

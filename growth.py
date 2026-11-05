@@ -48,6 +48,8 @@ def invite_link(uid):
 
 async def process_referral(uid, inviter_id, username=""):
     """بعد از ساخت کشور صدا زده میشه (بدون قفل). متنی که باید به دعوت‌شده نشون داده بشه یا ''."""
+    if not config.FEATURE_INVITE:
+        return ""
     async with db.LOCK:
         c = await db.load(uid)
         if not c:
