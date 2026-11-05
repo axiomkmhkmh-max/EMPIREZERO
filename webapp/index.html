@@ -1166,7 +1166,6 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 /* ---------- فروشگاه ---------- */
 let bannerI=0,bannerT;
 const SLIDES=[
- {bd:'فعال‌سازی آنی',a:'سپر فوری ',b:'برای کشورت!',cta:'خرید سپر',cat:'shield',art:'shield'},
  {bd:'ارز جنگ',a:'زیرو؛ ',b:'قدرت تسریع',cta:'خرید زیرو',cat:'zero',art:'zero'},
  {bd:'بازار زنده',a:'غذا و فولاد ',b:'با قیمت لحظه‌ای',cta:'مشاهده منابع',cat:'steel',art:'steel'}];
 function priceTx(it){return it.cur==='zero'?`⚡ ${fa(it.cost)} زیرو`:`💰 ${fa(it.cost)} سکه`}
@@ -1184,7 +1183,7 @@ function renderShop(){
   const rec=(sh.hist||[]).slice(0,4);
   el.innerHTML=`
   <div class="wallet"><div class="wal"><small>💰 سکه</small><b>${fa(m.coins)}</b></div><div class="wal z"><small>⚡ زیرو</small><b>${fa(m.zero)}</b><em>≈ ${fa(sh.zero_price)} سکه ${sh.zero_change?`<span class="mv ${sh.zero_change>0?'u':'d'}">${sh.zero_change>0?'▲':'▼'}</span>`:''}</em></div><div class="wal"><small>🌾 غذا</small><b>${fa(m.food)}</b></div><div class="wal"><small>⚙️ فولاد</small><b>${fa(m.steel)}</b></div></div>
-  <div class="shieldbar">${ART.shield}<div class="t">${sleft>0?`سپر فعال · <b>${dur(sleft)}</b>`:'سپر نداری؛ کشورت قابل حمله‌ست'}</div></div>
+  ${sleft>0?`<div class="shieldbar">${ART.shield}<div class="t">حمایت فعال · <b>${dur(sleft)}</b></div></div>`:''}
   <div style="height:14px"></div>
   <div class="banner" id="bn">${SLIDES.map((s,i)=>`<div class="slide ${i===bannerI?'on':''}"><div class="tx"><span class="bd">⚡ ${s.bd}</span><h2>${s.a}<em>${s.b}</em></h2><button class="btnR" data-cat="${s.cat}">${s.cta} ‹</button></div><div class="art">${ART[s.art]}</div></div>`).join('')}
     <button class="bnav r" data-d="-1">›</button><button class="bnav l" data-d="1">‹</button><div class="dots">${SLIDES.map((s,i)=>`<i class="${i===bannerI?'on':''}"></i>`).join('')}</div></div>
@@ -1249,10 +1248,10 @@ function renderMe(){
    <div class="sc"><small>استان‌ها</small><b>${fa(m.land)}</b></div><div class="sc"><small>قدرت کل</small><b>${fa(m.score)}</b></div>
    <div class="sc"><small>⚡ فرمان نظامی</small><b>${fa(Math.floor(m.orders))} / ${fa(m.orders_max)}</b><div class="bar"><i style="width:${m.orders/m.orders_max*100}%"></i></div></div>
    <div class="sc"><small>🙂 رضایت مردم</small><b>${fa(m.sat)}٪</b><div class="bar"><i class="b" style="width:${m.sat}%"></i></div></div>
-   <div class="sc"><small>👥 جمعیت</small><b>${fa(m.pop)}</b></div><div class="sc"><small>🛡 سپر</small><b>${sleft>0?dur(sleft):'ندارد'}</b></div>
+   <div class="sc"><small>👥 جمعیت</small><b>${fa(m.pop)}</b></div><div class="sc"><small>🛡 حمایت اولیه</small><b>${sleft>0?dur(sleft):'تمام شد'}</b></div>
   </div>
   ${m.emperor?'<div class="crownCard">👑 <b>تو امپراتور جهانی!</b> خراج ساعتی و فرمان اضافه می‌گیری؛ ولی همه دنبال تاجت‌ان.</div>':''}
-  <div class="acts" style="margin-top:14px"><button class="ok" id="meShop">🛒 فروشگاه سپر و منابع</button><button class="no" id="meMap">🗺 کشورم روی نقشه</button></div>`;
+  <div class="acts" style="margin-top:14px"><button class="ok" id="meShop">🛒 فروشگاه</button><button class="no" id="meMap">🗺 کشورم روی نقشه</button></div>`;
   $('#meShop').onclick=()=>setTab('shop');$('#meMap').onclick=()=>{setTab('map');setTimeout(goMe,150)};
 }
 /* فروشگاه عمداً با هر تیک نقشه دوباره ساخته نمیشه (اسکرول و دکمه‌ها نمی‌پرن)؛ فقط با خرید/بازکردن تب */
